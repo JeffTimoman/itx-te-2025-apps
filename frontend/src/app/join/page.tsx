@@ -18,6 +18,7 @@ export default function JoinPage() {
   const [tapDisabled, setTapDisabled] = useState(false);
   const [leaderboard, setLeaderboard] = useState<PlayerResult[]>([]);
   const timerRef = useRef<number | null>(null);
+  const [isMidJoin, setIsMidJoin] = useState(false);
   const inactivityRef = useRef<number | null>(null);
   const INACTIVITY_SECONDS = 60; // seconds before auto-return to join
 
@@ -42,11 +43,18 @@ export default function JoinPage() {
       setMessage(err.message || 'Failed to join');
     });
 
-    socket.on('gameStarted', (data: { gameState?: { duration?: number }; startTime?: number; durationMs?: number }) => {
+    socket.on('gameStarted', (data: { gameState?: { duration?: number }; startTime?: number; durationMs?: number; isMidJoin?: boolean }) => {
       console.log('gameStarted payload', data);
       setMessage('Game started!');
       setBgGreen(false);
       setTapDisabled(false);
+      if (data.isMidJoin) {
+        setIsMidJoin(true);
+        // mid-joiners cannot tap until next round
+        setTapDisabled(true);
+      } else {
+        setIsMidJoin(false);
+      }
       setLeaderboard([]);
       // data.gameState.duration is ms
       const totalMs = data.durationMs ?? data.gameState?.duration ?? 30000;
@@ -103,6 +111,7 @@ export default function JoinPage() {
       setBgGreen(false);
       setLeaderboard([]);
       setTapDisabled(false);
+      setIsMidJoin(false);
       setTimeLeft(null);
       // restart inactivity timer
       if (inactivityRef.current) { clearTimeout(inactivityRef.current); inactivityRef.current = null; }
@@ -194,6 +203,9 @@ export default function JoinPage() {
         </div>
       ) : (
         <div className="flex flex-col gap-4 items-center">
+          {isMidJoin && (
+            <div className="mb-2 px-3 py-1 bg-yellow-300 text-black rounded">Joined mid-round (you cannot tap until next round)</div>
+          )}
             <div className={`w-64 h-32 rounded flex items-center justify-center text-xl font-bold ${bgGreen ? 'bg-green-500' : 'bg-gray-200'}`}>
               {bgGreen ? 'You clicked first!' : (timeLeft !== null ? `Time left: ${timeLeft}s` : 'Waiting...') }
             </div>

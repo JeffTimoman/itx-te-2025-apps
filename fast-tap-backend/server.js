@@ -44,9 +44,19 @@ if (enableRedis) {
   console.log('Redis disabled (ENABLE_REDIS!=true). Using in-memory storage fallback.');
 }
 
-// CORS configuration
+// CORS configuration - support comma-separated list in CORS_ORIGIN
+const corsOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000").split(',').map(s => s.trim());
+console.log('Configuring CORS origins:', corsOrigins);
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+  origin: function(origin, callback) {
+    // allow requests with no origin (e.g., curl, mobile apps)
+    if (!origin) return callback(null, true);
+    if (corsOrigins.indexOf(origin) !== -1) {
+      return callback(null, true);
+    } else {
+      return callback(new Error('Not allowed by CORS'), false);
+    }
+  },
   methods: ["GET", "POST"],
   credentials: true
 };
@@ -106,6 +116,16 @@ io.on('connection', (socket) => {
           playerName,
           room: result.room
         });
+        // If a game is currently active for this room, send the game state to the joining socket so it can sync
+        try {
+          const gameState = await gameManager.getGameState(roomId);
+          if (gameState && gameState.status === 'playing') {
+            // indicate this client joined mid-round
+            socket.emit('gameStarted', { gameState, startTime: gameState.startTime, durationMs: gameState.duration, isMidJoin: true });
+          }
+        } catch (e) {
+          console.warn('Failed to send gameState to joining client', e && e.message);
+        }
       } else {
         socket.emit('joinRoomError', { message: result.message });
       }

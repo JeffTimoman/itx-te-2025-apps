@@ -14,6 +14,17 @@ class GameManager {
     }
   }
 
+  // Get current game state for a room (if exists)
+  async getGameState(roomId) {
+    try {
+      const data = await this._get(`${this.GAME_PREFIX}${roomId}`);
+      return data ? JSON.parse(data) : null;
+    } catch (err) {
+      console.error('Error getting game state:', err);
+      return null;
+    }
+  }
+
   // Helper methods to abstract redis vs memory storage
   async _setEx(key, ttlSeconds, value) {
     if (this.useMemory) {
@@ -111,9 +122,7 @@ class GameManager {
       }
 
       // Check if game is already in progress
-      if (room.status === 'playing') {
-        return { success: false, message: 'Game is already in progress' };
-      }
+      // Allow joining even if a game is in progress (participants may join mid-round)
 
       // Add player to room
       room.players[playerId] = {
