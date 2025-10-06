@@ -18,6 +18,8 @@ export default function JoinPage() {
   const [tapDisabled, setTapDisabled] = useState(false);
   const [leaderboard, setLeaderboard] = useState<PlayerResult[]>([]);
   const timerRef = useRef<number | null>(null);
+  const inactivityRef = useRef<number | null>(null);
+  const INACTIVITY_SECONDS = 60; // seconds before auto-return to join
 
   useEffect(() => {
     const socket = getSocket();
@@ -25,6 +27,15 @@ export default function JoinPage() {
     socket.on('joinedRoom', (data: { roomId: string; playerName: string }) => {
       setJoined(true);
       setMessage(`Joined room ${data.roomId} as ${data.playerName}`);
+      // start or reset inactivity timer when joined
+      if (inactivityRef.current) { clearTimeout(inactivityRef.current); inactivityRef.current = null; }
+      inactivityRef.current = window.setTimeout(() => {
+        // auto-leave due to inactivity
+        try { socket.emit('leaveRoom', { roomId: roomId.toUpperCase() }); } catch { }
+        setJoined(false);
+        setMessage('You were inactive and returned to join screen');
+        setTapDisabled(true);
+      }, INACTIVITY_SECONDS * 1000);
     });
 
     socket.on('joinRoomError', (err: { message?: string }) => {
@@ -68,6 +79,8 @@ export default function JoinPage() {
       setWinner({ playerId: data.playerId, playerName: data.playerName, tapCount: 1 });
       if (data.playerName === name) setBgGreen(true);
       setTapDisabled(true);
+      // clear inactivity timer while round ended
+      if (inactivityRef.current) { clearTimeout(inactivityRef.current); inactivityRef.current = null; }
     });
 
     // When server says disable taps (first tap), ensure button is disabled
@@ -91,6 +104,14 @@ export default function JoinPage() {
       setLeaderboard([]);
       setTapDisabled(false);
       setTimeLeft(null);
+      // restart inactivity timer
+      if (inactivityRef.current) { clearTimeout(inactivityRef.current); inactivityRef.current = null; }
+      inactivityRef.current = window.setTimeout(() => {
+        try { socket.emit('leaveRoom', { roomId: roomId.toUpperCase() }); } catch { }
+        setJoined(false);
+        setMessage('You were inactive and returned to join screen');
+        setTapDisabled(true);
+      }, INACTIVITY_SECONDS * 1000);
     });
 
     socket.on('gameEnded', (data: GameEndedEvent) => {
@@ -98,7 +119,35 @@ export default function JoinPage() {
       setWinner(data.winner || null);
       setTapDisabled(true);
       if (data.results) setLeaderboard(data.results);
+      // clear inactivity as round ended
+      if (inactivityRef.current) { clearTimeout(inactivityRef.current); inactivityRef.current = null; }
     });
+
+    socket.on('disconnect', () => {
+      setJoined(false);
+      setMessage('Disconnected from server — please re-join');
+      setTapDisabled(true);
+    });
+
+    // Activity tracking to reset inactivity timer
+    const activityEvents = ['mousemove', 'keydown', 'touchstart', 'click'];
+    const resetInactivity = () => {
+      if (inactivityRef.current) { clearTimeout(inactivityRef.current); inactivityRef.current = null; }
+      if (joined) {
+        inactivityRef.current = window.setTimeout(() => {
+          try { socket.emit('leaveRoom', { roomId: roomId.toUpperCase() }); } catch (e) {}
+          setJoined(false);
+          setMessage('You were inactive and returned to join screen');
+          setTapDisabled(true);
+        }, INACTIVITY_SECONDS * 1000);
+      }
+    };
+    activityEvents.forEach(ev => window.addEventListener(ev, resetInactivity));
+
+    const beforeUnloadHandler = () => {
+      try { socket.emit('leaveRoom', { roomId: roomId.toUpperCase() }); } catch { }
+    };
+    window.addEventListener('beforeunload', beforeUnloadHandler);
 
     return () => {
       socket.off('joinedRoom');
@@ -109,8 +158,12 @@ export default function JoinPage() {
       socket.off('timeExpiredNoTap');
       socket.off('roundReset');
       socket.off('gameEnded');
+      socket.off('disconnect');
+      activityEvents.forEach(ev => window.removeEventListener(ev, resetInactivity));
+      window.removeEventListener('beforeunload', beforeUnloadHandler);
+      if (inactivityRef.current) clearTimeout(inactivityRef.current);
     };
-  }, [name]);
+  }, [name, joined, roomId]);
 
   function handleJoin() {
     if (!roomId || !name) {
