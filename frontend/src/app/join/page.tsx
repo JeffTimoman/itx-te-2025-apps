@@ -1,228 +1,374 @@
-'use client';
+"use client";
 
-import React, { useEffect, useRef, useState } from 'react';
-import { getSocket } from '../../lib/socket';
+import React, { useEffect, useRef, useState } from "react";
+import { getSocket } from "../../lib/socket";
 
 type PlayerResult = { playerId: string; playerName: string; tapCount: number };
-type FirstTapEvent = { playerId: string; playerName: string; timestamp: number };
+type FirstTapEvent = {
+  playerId: string;
+  playerName: string;
+  timestamp: number;
+};
 type GameEndedEvent = { results?: PlayerResult[]; winner?: PlayerResult };
+type RoomLike = { host?: string };
 
 export default function JoinPage() {
-  const [roomId, setRoomId] = useState('');
-  const [name, setName] = useState('');
+  const [roomId, setRoomId] = useState("");
+  const [name, setName] = useState("");
   const [joined, setJoined] = useState(false);
-  const [message, setMessage] = useState('');
+
+  const [toast, setToast] = useState<string>(""); // tiny, unobtrusive message
   const [winner, setWinner] = useState<PlayerResult | null>(null);
+  const [hostId, setHostId] = useState<string | null>(null);
+
+  const [ownId, setOwnId] = useState<string | null>(null);
   const [bgGreen, setBgGreen] = useState(false);
+  const [bgRed, setBgRed] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
-  const [tapDisabled, setTapDisabled] = useState(false);
-  const [leaderboard, setLeaderboard] = useState<PlayerResult[]>([]);
-  const timerRef = useRef<number | null>(null);
+  const [tapDisabled, setTapDisabled] = useState(true);
   const [isMidJoin, setIsMidJoin] = useState(false);
+
+  const [leaderboard, setLeaderboard] = useState<PlayerResult[]>([]);
+
+  const timerRef = useRef<number | null>(null);
+  const isMidJoinRef = useRef<boolean>(false);
   const inactivityRef = useRef<number | null>(null);
-  const INACTIVITY_SECONDS = 60; // seconds before auto-return to join
+
+  const INACTIVITY_SECONDS = 180;
 
   useEffect(() => {
     const socket = getSocket();
 
-    socket.on('joinedRoom', (data: { roomId: string; playerName: string }) => {
-      setJoined(true);
-      setMessage(`Joined room ${data.roomId} as ${data.playerName}`);
-      // start or reset inactivity timer when joined
-      if (inactivityRef.current) { clearTimeout(inactivityRef.current); inactivityRef.current = null; }
-      inactivityRef.current = window.setTimeout(() => {
-        // auto-leave due to inactivity
-        try { socket.emit('leaveRoom', { roomId: roomId.toUpperCase() }); } catch { }
-        setJoined(false);
-        setMessage('You were inactive and returned to join screen');
-        setTapDisabled(true);
-      }, INACTIVITY_SECONDS * 1000);
-    });
+    socket.on(
+      "joinedRoom",
+      (data: { roomId: string; playerName: string; playerId?: string; room?: RoomLike }) => {
+        setJoined(true);
+        setToast(`Joined ${data.roomId} as ${data.playerName}`);
+        if (data.playerId) setOwnId(data.playerId);
+        if (data.room?.host) setHostId(data.room.host);
 
-    socket.on('joinRoomError', (err: { message?: string }) => {
-      setMessage(err.message || 'Failed to join');
-    });
-
-    socket.on('gameStarted', (data: { gameState?: { duration?: number }; startTime?: number; durationMs?: number; isMidJoin?: boolean }) => {
-      console.log('gameStarted payload', data);
-      setMessage('Game started!');
-      setBgGreen(false);
-      setTapDisabled(false);
-      if (data.isMidJoin) {
-        setIsMidJoin(true);
-        // mid-joiners cannot tap until next round
-        setTapDisabled(true);
-      } else {
-        setIsMidJoin(false);
+        if (inactivityRef.current) clearTimeout(inactivityRef.current);
+        inactivityRef.current = window.setTimeout(() => {
+          try {
+            socket.emit("leaveRoom", { roomId: roomId.toUpperCase() });
+          } catch {}
+          setJoined(false);
+          setTapDisabled(true);
+          setToast("Inactive — returned to join");
+        }, INACTIVITY_SECONDS * 1000);
       }
-      setLeaderboard([]);
-      // data.gameState.duration is ms
-      const totalMs = data.durationMs ?? data.gameState?.duration ?? 30000;
-      // data.startTime is authoritative server startTime (ms since epoch)
-      const serverStart = data.startTime ?? Date.now();
-      if (totalMs) {
-        const endTs = serverStart + totalMs;
-        // clear any existing interval first
-        if (timerRef.current) {
-          clearInterval(timerRef.current);
-          timerRef.current = null;
-        }
-        const tick = () => {
-          const left = Math.max(0, Math.ceil((endTs - Date.now()) / 1000));
-          setTimeLeft(left);
-          if (left <= 0) {
-            setTimeLeft(0);
-            if (timerRef.current) {
+    );
+
+    socket.on("joinRoomError", (err: { message?: string }) => {
+      setToast(err.message || "Failed to join");
+    });
+
+    socket.on(
+      "gameStarted",
+      (data: {
+        gameState?: { duration?: number };
+        startTime?: number;
+        durationMs?: number;
+        isMidJoin?: boolean;
+      }) => {
+        setToast("Game started");
+        setBgGreen(false);
+        setTapDisabled(true);
+
+        const mid = Boolean(data.isMidJoin);
+        setIsMidJoin(mid);
+        isMidJoinRef.current = mid;
+
+        setWinner(null);
+        setLeaderboard([]);
+
+        const totalMs = data.durationMs ?? data.gameState?.duration ?? 30000;
+        const serverStart = data.startTime ?? Date.now();
+
+        if (totalMs) {
+          const endTs = serverStart + totalMs;
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
+          }
+          const tick = () => {
+            const left = Math.max(0, Math.ceil((endTs - Date.now()) / 1000));
+            setTimeLeft(left);
+            if (left <= 0 && timerRef.current) {
               clearInterval(timerRef.current);
               timerRef.current = null;
             }
-          }
-        };
-        tick();
-        timerRef.current = window.setInterval(tick, 250);
+          };
+          tick();
+          timerRef.current = window.setInterval(tick, 250);
+        }
+      }
+    );
+
+    socket.on("firstTap", (data: FirstTapEvent) => {
+      setWinner({
+        playerId: data.playerId,
+        playerName: data.playerName,
+        tapCount: 1,
+      });
+      // color: winner green, other active participants red (ignore mid-joiners)
+      if (ownId && data.playerId === ownId) {
+        setBgGreen(true);
+        setBgRed(false);
+      } else {
+        setBgGreen(false);
+        if (!isMidJoinRef.current) setBgRed(true);
+      }
+      setTapDisabled(true);
+      if (inactivityRef.current) {
+        clearTimeout(inactivityRef.current);
+        inactivityRef.current = null;
       }
     });
 
-    socket.on('firstTap', (data: FirstTapEvent) => {
-      setWinner({ playerId: data.playerId, playerName: data.playerName, tapCount: 1 });
-      if (data.playerName === name) setBgGreen(true);
-      setTapDisabled(true);
-      // clear inactivity timer while round ended
-      if (inactivityRef.current) { clearTimeout(inactivityRef.current); inactivityRef.current = null; }
-    });
+    socket.on("disableTaps", () => setTapDisabled(true));
 
-    // When server says disable taps (first tap), ensure button is disabled
-    socket.on('disableTaps', () => {
-      setTapDisabled(true);
-    });
-
-    // If time expired and no taps were received, server indicates participants may still press
-    socket.on('timeExpiredNoTap', () => {
-      setMessage('Time expired with no taps — TAPS ARE STILL ALLOWED');
-      // allow taps per your request
-      setTapDisabled(false);
+    socket.on("timeExpiredNoTap", () => {
+      setToast("No taps — taps open");
+      if (!isMidJoinRef.current) setTapDisabled(false);
       setTimeLeft(0);
     });
 
-    // When admin resets the round
-    socket.on('roundReset', (data: { message?: string }) => {
-      setMessage(data?.message || 'Round reset by admin');
+    socket.on("postTimerOpen", (data: { message?: string }) => {
+      setToast(data?.message || "Taps open");
+      if (!isMidJoinRef.current) setTapDisabled(false);
+    });
+
+    socket.on("roundReset", (data: { message?: string }) => {
+      setToast(data?.message || "Round reset");
       setWinner(null);
       setBgGreen(false);
+      setBgRed(false);
       setLeaderboard([]);
       setTapDisabled(false);
       setIsMidJoin(false);
+      isMidJoinRef.current = false;
       setTimeLeft(null);
-      // restart inactivity timer
-      if (inactivityRef.current) { clearTimeout(inactivityRef.current); inactivityRef.current = null; }
+
+      if (inactivityRef.current) clearTimeout(inactivityRef.current);
       inactivityRef.current = window.setTimeout(() => {
-        try { socket.emit('leaveRoom', { roomId: roomId.toUpperCase() }); } catch { }
+        try {
+          socket.emit("leaveRoom", { roomId: roomId.toUpperCase() });
+        } catch {}
         setJoined(false);
-        setMessage('You were inactive and returned to join screen');
         setTapDisabled(true);
+        setToast("Inactive — returned to join");
       }, INACTIVITY_SECONDS * 1000);
     });
 
-    socket.on('gameEnded', (data: GameEndedEvent) => {
-      setMessage(`Game ended. Winner: ${data.winner?.playerName || 'N/A'}`);
+    socket.on("gameEnded", (data: GameEndedEvent) => {
+      setToast(`Winner: ${data.winner?.playerName || "N/A"}`);
       setWinner(data.winner || null);
       setTapDisabled(true);
-      if (data.results) setLeaderboard(data.results);
-      // clear inactivity as round ended
-      if (inactivityRef.current) { clearTimeout(inactivityRef.current); inactivityRef.current = null; }
+      if (data.results) {
+        const filtered = hostId
+          ? data.results.filter((r) => r.playerId !== hostId)
+          : data.results;
+        setLeaderboard(filtered);
+      }
+      // color screens: winner green, losers red (unless mid-joiners)
+      if (data.winner && ownId) {
+        if (data.winner.playerId === ownId) {
+          setBgGreen(true);
+          setBgRed(false);
+        } else {
+          if (!isMidJoinRef.current) {
+            setBgGreen(false);
+            setBgRed(true);
+          }
+        }
+      }
+      if (inactivityRef.current) {
+        clearTimeout(inactivityRef.current);
+        inactivityRef.current = null;
+      }
     });
 
-    socket.on('disconnect', () => {
+    socket.on("disconnect", () => {
       setJoined(false);
-      setMessage('Disconnected from server — please re-join');
       setTapDisabled(true);
+      setToast("Disconnected — rejoin");
     });
 
-    // Activity tracking to reset inactivity timer
-    const activityEvents = ['mousemove', 'keydown', 'touchstart', 'click'];
+    // Inactivity tracking
+    const activityEvents = ["mousemove", "keydown", "touchstart", "click"];
     const resetInactivity = () => {
-      if (inactivityRef.current) { clearTimeout(inactivityRef.current); inactivityRef.current = null; }
+      if (inactivityRef.current) {
+        clearTimeout(inactivityRef.current);
+        inactivityRef.current = null;
+      }
       if (joined) {
         inactivityRef.current = window.setTimeout(() => {
-          try { socket.emit('leaveRoom', { roomId: roomId.toUpperCase() }); } catch (e) {}
+          try {
+            socket.emit("leaveRoom", { roomId: roomId.toUpperCase() });
+          } catch {}
           setJoined(false);
-          setMessage('You were inactive and returned to join screen');
           setTapDisabled(true);
+          setToast("Inactive — returned to join");
         }, INACTIVITY_SECONDS * 1000);
       }
     };
-    activityEvents.forEach(ev => window.addEventListener(ev, resetInactivity));
+    activityEvents.forEach((ev) =>
+      window.addEventListener(ev, resetInactivity)
+    );
 
     const beforeUnloadHandler = () => {
-      try { socket.emit('leaveRoom', { roomId: roomId.toUpperCase() }); } catch { }
+      try {
+        socket.emit("leaveRoom", { roomId: roomId.toUpperCase() });
+      } catch {}
     };
-    window.addEventListener('beforeunload', beforeUnloadHandler);
+    window.addEventListener("beforeunload", beforeUnloadHandler);
 
     return () => {
-      socket.off('joinedRoom');
-      socket.off('joinRoomError');
-      socket.off('gameStarted');
-      socket.off('firstTap');
-      socket.off('disableTaps');
-      socket.off('timeExpiredNoTap');
-      socket.off('roundReset');
-      socket.off('gameEnded');
-      socket.off('disconnect');
-      activityEvents.forEach(ev => window.removeEventListener(ev, resetInactivity));
-      window.removeEventListener('beforeunload', beforeUnloadHandler);
+      socket.off("joinedRoom");
+      socket.off("joinRoomError");
+      socket.off("gameStarted");
+      socket.off("firstTap");
+      socket.off("disableTaps");
+      socket.off("timeExpiredNoTap");
+      socket.off("postTimerOpen");
+      socket.off("roundReset");
+      socket.off("gameEnded");
+      socket.off("disconnect");
+      activityEvents.forEach((ev) =>
+        window.removeEventListener(ev, resetInactivity)
+      );
+      window.removeEventListener("beforeunload", beforeUnloadHandler);
       if (inactivityRef.current) clearTimeout(inactivityRef.current);
+      if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [name, joined, roomId]);
+  }, [name, joined, roomId, hostId, ownId]);
 
   function handleJoin() {
     if (!roomId || !name) {
-      setMessage('Please enter room and name');
+      setToast("Enter code & name");
       return;
     }
-    const socket = getSocket();
-    socket.emit('joinRoom', { roomId: roomId.toUpperCase(), playerName: name });
+    getSocket().emit("joinRoom", {
+      roomId: roomId.toUpperCase(),
+      playerName: name,
+    });
   }
 
   function handleTap() {
-    const socket = getSocket();
     if (tapDisabled) return;
-    socket.emit('tap', { roomId: roomId.toUpperCase() });
-    // disable button locally to avoid double taps
-    setTapDisabled(true);
+    getSocket().emit("tap", { roomId: roomId.toUpperCase() });
+    setTapDisabled(true); // prevent double taps locally
+  }
+
+  // Whole-screen pointer handler; ignore taps on inputs/buttons when not joined
+  function handlePointerTap(e: React.PointerEvent<HTMLDivElement>) {
+    const target = e.target as HTMLElement;
+    if (!joined) return; // join screen shouldn't trigger taps
+    if (
+      target &&
+      (target.closest("button") ||
+        target.closest("input") ||
+        target.tagName === "A")
+    )
+      return;
+    if (!tapDisabled) handleTap();
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6">
-      <h1 className="text-2xl font-bold mb-4">Join Fast Tap</h1>
+    <div
+      className="w-screen h-dvh min-h-screen min-w-full"
+      onPointerDown={handlePointerTap}
+      onKeyDown={(e) => {
+        if (joined && !tapDisabled && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          handleTap();
+        }
+      }}
+      tabIndex={0}
+      role="button"
+    >
       {!joined ? (
-        <div className="flex flex-col gap-2 w-full max-w-md">
-          <input value={roomId} onChange={(e) => setRoomId(e.target.value)} placeholder="Enter game code" className="p-2 border rounded" />
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter your name (unique)" className="p-2 border rounded" />
-          <button onClick={handleJoin} className="bg-blue-600 text-white p-2 rounded">Join</button>
-          {message && <div className="mt-2 text-sm text-gray-700">{message}</div>}
+        // FULL-SCREEN JOIN
+        <div className="w-full h-full flex items-center justify-center">
+          <div className="w-full max-w-sm p-4 flex flex-col gap-2">
+            <input
+              value={roomId}
+              onChange={(e) => setRoomId(e.target.value)}
+              placeholder="Game code"
+              className="p-3 border rounded"
+            />
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your name (unique)"
+              className="p-3 border rounded"
+            />
+            <button
+              onClick={handleJoin}
+              className="p-3 rounded bg-blue-600 text-white"
+            >
+              Join
+            </button>
+            {toast && <div className="text-xs text-gray-600 mt-1">{toast}</div>}
+          </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-4 items-center">
+        // FULL-SCREEN TAP SURFACE
+        <div
+          className={`w-full h-full relative select-none transition-colors duration-200 ${
+            bgGreen ? "bg-green-500" : bgRed ? "bg-red-600" : "bg-gray-200"
+          }`}
+        >
+          {/* Subtle banners */}
           {isMidJoin && (
-            <div className="mb-2 px-3 py-1 bg-yellow-300 text-black rounded">Joined mid-round (you cannot tap until next round)</div>
-          )}
-            <div className={`w-64 h-32 rounded flex items-center justify-center text-xl font-bold ${bgGreen ? 'bg-green-500' : 'bg-gray-200'}`}>
-              {bgGreen ? 'You clicked first!' : (timeLeft !== null ? `Time left: ${timeLeft}s` : 'Waiting...') }
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1 text-xs bg-yellow-300 text-black rounded">
+              Joined mid-round — wait next round
             </div>
-            <button disabled={tapDisabled} onClick={handleTap} className={`text-white p-4 rounded text-xl ${tapDisabled ? 'bg-gray-400' : 'bg-red-600'}`}>
-              TAP
-            </button>
-            {winner && <div className="mt-2">Winner: {winner.playerName}</div>}
-            {leaderboard.length > 0 && (
-              <div className="mt-4 w-64">
-                <h4 className="font-bold">Leaderboard</h4>
-                <ol className="list-decimal list-inside">
-                  {leaderboard.map((r) => (
-                    <li key={r.playerId}>{r.playerName} — {r.tapCount}</li>
-                  ))}
-                </ol>
+          )}
+          {toast && (
+            <div className="absolute top-3 right-3 px-3 py-1 text-xs bg-black/70 text-white rounded">
+              {toast}
+            </div>
+          )}
+
+          {/* Center status */}
+          <div className="w-full h-full flex items-center justify-center">
+            <div className="text-center">
+              <div className={`text-6xl font-extrabold mb-2 ${bgGreen || bgRed ? 'text-white' : 'text-black'}`}>
+                {bgGreen
+                  ? "You tapped first!"
+                  : timeLeft !== null
+                  ? `${timeLeft}s`
+                  : "Waiting…"}
               </div>
-            )}
+              <div
+                className={`text-lg ${
+                  tapDisabled ? "text-white/80" : (bgGreen || bgRed ? 'text-white' : 'text-black')
+                }`}
+              >
+                {tapDisabled ? "Tap disabled" : "Tap anywhere"}
+              </div>
+              {winner && !bgGreen && (
+                <div className="text-sm mt-2">
+                  Winner: <strong>{winner.playerName}</strong>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Optional minimal leaderboard at bottom (kept tiny) */}
+          {leaderboard.length > 0 && (
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs bg-white/70 backdrop-blur px-3 py-2 rounded">
+              <ol className="list-decimal list-inside">
+                {leaderboard.map((r) => (
+                  <li key={r.playerId}>
+                    {r.playerName} — {r.tapCount}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
         </div>
       )}
     </div>

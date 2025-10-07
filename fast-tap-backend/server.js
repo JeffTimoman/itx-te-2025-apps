@@ -44,19 +44,9 @@ if (enableRedis) {
   console.log('Redis disabled (ENABLE_REDIS!=true). Using in-memory storage fallback.');
 }
 
-// CORS configuration - support comma-separated list in CORS_ORIGIN
-const corsOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000").split(',').map(s => s.trim());
-console.log('Configuring CORS origins:', corsOrigins);
+// CORS configuration
 const corsOptions = {
-  origin: function(origin, callback) {
-    // allow requests with no origin (e.g., curl, mobile apps)
-    if (!origin) return callback(null, true);
-    if (corsOrigins.indexOf(origin) !== -1) {
-      return callback(null, true);
-    } else {
-      return callback(new Error('Not allowed by CORS'), false);
-    }
-  },
+  origin: process.env.CORS_ORIGIN || "http://localhost:3000",
   methods: ["GET", "POST"],
   credentials: true
 };
@@ -195,15 +185,16 @@ io.on('connection', (socket) => {
             }
           } else {
             // No one tapped during the timer: emit an event indicating time expired with no taps
+            // Put the room into a 'post' phase where taps are allowed and the first tap will still win/stop everyone.
             io.to(roomId).emit('timeExpiredNoTap', { message: 'Time expired with no taps' });
-            // Reset room status to waiting so participants can still press (per request)
             try {
-              room.status = 'waiting';
-              delete room.gameStartTime;
-              delete room.gameDuration;
-              await gameManager._setEx(`${gameManager.ROOM_PREFIX}${roomId}`, 3600, JSON.stringify(room));
+              room.status = 'post';
+              // keep gameStartTime and gameDuration if you want for reference; remove if not needed
++              await gameManager._setEx(`${gameManager.ROOM_PREFIX}${roomId}`, 3600, JSON.stringify(room));
+              // Inform clients that post-timer tapping is now open
+              io.to(roomId).emit('postTimerOpen', { message: 'Timer ended — first tap now wins' });
             } catch (e) {
-              console.warn('Failed to reset room after empty timeout', e && e.message);
+              console.warn('Failed to set room to post state after empty timeout', e && e.message);
             }
           }
         }, durationMs);
@@ -270,7 +261,11 @@ io.on('connection', (socket) => {
       const room = await gameManager.getRoom(roomId);
       if (!room) return;
       delete room.firstTap;
-      delete room.awaitingAnswer;
+  delete room.awaitingAnswer;
+  // reset status to waiting so next round can be started fresh
+  room.status = 'waiting';
+  delete room.gameStartTime;
+  delete room.gameDuration;
       // reset tap counts
       Object.keys(room.players).forEach(pid => {
         room.players[pid].tapCount = 0;

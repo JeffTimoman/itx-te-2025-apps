@@ -207,9 +207,9 @@ class GameManager {
 
       const room = JSON.parse(roomData);
 
-      // Check if game is active
-      if (room.status !== 'playing') {
-        return { success: false, message: 'Game is not active' };
+      // Check if game is in post-timer phase only (taps are only allowed after the timer ends)
+      if (room.status !== 'post') {
+        return { success: false, message: 'Taps are not allowed until the timer ends' };
       }
 
       // Check if player is in the room

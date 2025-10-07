@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 
 type Player = { id: string; name: string };
-type Room = { id: string; players: Record<string, Player> };
+type Room = { id: string; players: Record<string, Player>; host?: string };
 import { getSocket } from '../../lib/socket';
 
 export default function AdminPage() {
@@ -18,17 +18,27 @@ export default function AdminPage() {
 
     socket.on('roomCreated', (data: { roomId: string; room: Room }) => {
       setCreatedRoom(data.room);
+      // show players excluding the host/admin
+      const room = data.room;
+      const playersList = room && room.players ? Object.values(room.players).filter(p => p.id !== room.host) : [];
+      setPlayers(playersList);
       setMessage(`Room ${data.roomId} created`);
     });
     socket.on('playerJoined', (data: { playerName: string; room?: Room }) => {
       // room object may be included
       setMessage(`${data.playerName} joined`);
-      if (data.room && data.room.players) {
-        setPlayers(Object.values(data.room.players));
+      const room = data.room;
+      if (room && room.players) {
+        const playersList = Object.values(room.players).filter(p => p.id !== room.host);
+        setPlayers(playersList);
       }
     });
     socket.on('playerLeft', (data: { room?: Room }) => {
-      if (data.room && data.room.players) setPlayers(Object.values(data.room.players));
+      const room = data.room;
+      if (room && room.players) {
+        const playersList = Object.values(room.players).filter(p => p.id !== room.host);
+        setPlayers(playersList);
+      }
     });
 
     socket.on('gameStarted', () => {
@@ -47,7 +57,11 @@ export default function AdminPage() {
     socket.on('roundReset', (data:{ message?: string; room?: Room }) => {
       setMessage(data.message || 'Round reset');
       setFirstTap(null);
-      if (data.room && data.room.players) setPlayers(Object.values(data.room.players));
+      const room = data.room;
+      if (room && room.players) {
+        const playersList = Object.values(room.players).filter(p => p.id !== room.host);
+        setPlayers(playersList);
+      }
     });
 
     return () => {
@@ -98,7 +112,7 @@ export default function AdminPage() {
         <div className="flex flex-col gap-4 items-center">
           <div>Room Code: <span className="font-mono text-lg">{createdRoom.id}</span></div>
           <div className="flex gap-2">
-            {[5,10,15,20,30].map((s) => (
+            {[1,2,5,10,15,20,25,30].map((s) => (
               <button key={s} onClick={() => handleStart(s)} className="px-3 py-1 bg-blue-600 text-white rounded">{s}s</button>
             ))}
           </div>
