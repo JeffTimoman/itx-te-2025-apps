@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fast-tap-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fast-tap-backend
+  template:
+    metadata:
+      labels:
+        app: fast-tap-backend
+    spec:
+      containers:
+        - name: backend
+          image: your-registry/fast-tap-backend:latest
+          env:
+            - name: PORT
+              value: "5000"
+            - name: ENABLE_REDIS
+              value: "true"
+            - name: REDIS_URL
+              value: "redis://redis:6379"
+          ports:
+            - containerPort: 5000
+          resources:
+            limits:
+              cpu: "1"
+              memory: "700Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+spec:
+  selector:
+    app: fast-tap-backend
+  ports:
+    - protocol: TCP
+      port: 5000
+      targetPort: 5000

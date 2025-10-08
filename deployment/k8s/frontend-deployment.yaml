@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fast-tap-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fast-tap-frontend
+  template:
+    metadata:
+      labels:
+        app: fast-tap-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: your-registry/fast-tap-frontend:latest
+          ports:
+            - containerPort: 80
+          resources:
+            limits:
+              cpu: "0.5"
+              memory: "500Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+spec:
+  selector:
+    app: fast-tap-frontend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+      type: ClusterIP

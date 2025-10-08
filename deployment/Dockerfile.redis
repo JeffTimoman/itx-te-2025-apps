@@ -1,0 +1,7 @@
+# Redis official image is recommended. This Dockerfile is minimal and not strictly necessary.
+FROM redis:7.0-alpine
+
+# Expose default redis port
+EXPOSE 6379
+
+CMD ["redis-server", "--appendonly", "yes"]
