@@ -149,12 +149,27 @@ export default function AdminPage() {
     socket.emit('endGame', { roomId: createdRoom.id });
   }
 
+  function handleLeave() {
+    if (!createdRoom) return;
+    const socket = getSocket();
+    // Ask server to end the game (kicks players), then clear local admin state so host returns to create UI
+    const ok = window.confirm('Leave game? This will end the game and kick players. Continue?');
+    if (!ok) return;
+    socket.emit('endGame', { roomId: createdRoom.id });
+    // Immediately clear local state for host to 'leave' and return to create form
+    setCreatedRoom(null);
+    setPlayers([]);
+    setFirstTap(null);
+    setAllowJoins(true);
+    setMessage('You left the game and returned to create view');
+  }
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6">
       <h1 className="text-2xl font-bold mb-4">Game Control Panels</h1>
       {!createdRoom ? (
         <div className="flex flex-col gap-2 w-full max-w-md">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name (host)" className="p-2 border rounded" />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter Room ID" className="p-2 border rounded" />
           <button onClick={handleCreate} className="bg-green-600 text-white p-2 rounded">Create Room</button>
           {message && <div className="mt-2 text-sm text-gray-700">{message}</div>}
         </div>
@@ -169,6 +184,7 @@ export default function AdminPage() {
           <div className="mt-2">
             <button onClick={handleReset} className="px-3 py-1 bg-yellow-500 text-black rounded">Reset Round</button>
             <button onClick={() => handleEnd()} className="ml-2 px-3 py-1 bg-red-600 text-white rounded">End Game</button>
+            <button onClick={handleLeave} className="ml-2 px-3 py-1 bg-red-400 text-white rounded">Leave Game</button>
             <button onClick={handleToggleAllowJoins} className="ml-2 px-3 py-1 bg-gray-200 text-black rounded">
               {allowJoins ? 'Disable Joins' : 'Enable Joins'}
             </button>
