@@ -217,6 +217,43 @@ io.on('connection', (socket) => {
       console.error('Error handling disconnect:', error);
     }
   });
+
+  // Admin ends the game and kicks all players (except the admin)
+  socket.on('endGame', async (data) => {
+    try {
+      const { roomId } = data;
+      const room = await gameManager.getRoom(roomId);
+      if (!room) {
+        socket.emit('endGameError', { message: 'Room not found' });
+        return;
+      }
+      if (room.host !== socket.id) {
+        socket.emit('endGameError', { message: 'Only the host can end the game' });
+        return;
+      }
+
+      const playerIds = Object.keys(room.players || {});
+      for (const pid of playerIds) {
+        if (pid === socket.id) continue;
+        try { await gameManager.leaveRoom(roomId, pid); } catch (e) {}
+        try {
+          const playerSocket = io.sockets.sockets.get(pid);
+          if (playerSocket) {
+            try { playerSocket.emit('kicked', { message: 'The admin ended the game' }); } catch (e) {}
+            try { playerSocket.leave(roomId); } catch (e) {}
+            try { playerSocket.disconnect(true); } catch (e) {}
+          }
+        } catch (e) {}
+      }
+
+      const updated = await gameManager.getRoom(roomId);
+      io.to(roomId).emit('roomEnded', { message: 'Game ended by admin', room: updated });
+      socket.emit('endGameAck', { success: true });
+    } catch (err) {
+      console.error('Error ending game', err);
+      socket.emit('endGameError', { message: 'Failed to end game' });
+    }
+  });
 });
 
 const PORT = process.env.PORT || 5000;

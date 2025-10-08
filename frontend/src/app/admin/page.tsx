@@ -64,6 +64,28 @@ export default function AdminPage() {
       }
     });
 
+    socket.on('roomEnded', (data: { message?: string; room?: Room }) => {
+      setMessage(data.message || 'Room ended');
+      setFirstTap(null);
+      // room may be cleared or updated
+      const room = data.room;
+      if (!room || !room.players) {
+        setPlayers([]);
+        setCreatedRoom(null);
+      } else {
+        const playersList = Object.values(room.players).filter(p => p.id !== room.host);
+        setPlayers(playersList);
+      }
+    });
+
+    socket.on('endGameAck', () => {
+      setMessage('Game ended');
+    });
+
+    socket.on('endGameError', (err: { message?: string }) => {
+      setMessage(err.message || 'Failed to end game');
+    });
+
     return () => {
       socket.off('roomCreated');
       socket.off('playerJoined');
@@ -71,6 +93,9 @@ export default function AdminPage() {
       socket.off('gameStarted');
       socket.off('firstTap');
       socket.off('gameEnded');
+      socket.off('roomEnded');
+      socket.off('endGameAck');
+      socket.off('endGameError');
     };
   }, []);
 
@@ -99,6 +124,12 @@ export default function AdminPage() {
     socket.emit('resetRound', { roomId: createdRoom.id });
   }
 
+  function handleEnd() {
+    if (!createdRoom) return;
+    const socket = getSocket();
+    socket.emit('endGame', { roomId: createdRoom.id });
+  }
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6">
       <h1 className="text-2xl font-bold mb-4">Admin - Fast Tap</h1>
@@ -118,6 +149,7 @@ export default function AdminPage() {
           </div>
           <div className="mt-2">
             <button onClick={handleReset} className="px-3 py-1 bg-yellow-500 text-black rounded">Reset Round</button>
+            <button onClick={() => handleEnd()} className="ml-2 px-3 py-1 bg-red-600 text-white rounded">End Game</button>
           </div>
           <div className="mt-4">
             <h3>Players</h3>

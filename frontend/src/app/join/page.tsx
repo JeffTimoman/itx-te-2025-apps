@@ -31,6 +31,7 @@ export default function JoinPage() {
   const [leaderboard, setLeaderboard] = useState<PlayerResult[]>([]);
 
   const timerRef = useRef<number | null>(null);
+  const endTsRef = useRef<number | null>(null);
   const isMidJoinRef = useRef<boolean>(false);
   const inactivityRef = useRef<number | null>(null);
 
@@ -87,12 +88,14 @@ export default function JoinPage() {
 
         if (totalMs) {
           const endTs = serverStart + totalMs;
+          endTsRef.current = endTs;
           if (timerRef.current) {
             clearInterval(timerRef.current);
             timerRef.current = null;
           }
           const tick = () => {
-            const left = Math.max(0, Math.ceil((endTs - Date.now()) / 1000));
+            if (!endTsRef.current) return;
+            const left = Math.max(0, Math.floor((endTsRef.current - Date.now()) / 1000));
             setTimeLeft(left);
             if (left <= 0 && timerRef.current) {
               clearInterval(timerRef.current);
@@ -100,7 +103,7 @@ export default function JoinPage() {
             }
           };
           tick();
-          timerRef.current = window.setInterval(tick, 250);
+          timerRef.current = window.setInterval(tick, 100);
         }
       }
     );
@@ -131,12 +134,19 @@ export default function JoinPage() {
     socket.on("timeExpiredNoTap", () => {
       setToast("No taps — taps open");
       if (!isMidJoinRef.current) setTapDisabled(false);
+      // stop tick and immediately show 0
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      endTsRef.current = null;
       setTimeLeft(0);
     });
 
     socket.on("postTimerOpen", (data: { message?: string }) => {
       setToast(data?.message || "Taps open");
       if (!isMidJoinRef.current) setTapDisabled(false);
+      // ensure countdown is cleared and shows 0 immediately
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      endTsRef.current = null;
+      setTimeLeft(0);
     });
 
     socket.on("roundReset", (data: { message?: string }) => {
@@ -195,6 +205,34 @@ export default function JoinPage() {
       setToast("Disconnected — rejoin");
     });
 
+    // Admin kicked this client (end game)
+    socket.on('kicked', (data: { message?: string }) => {
+      setToast(data?.message || 'Kicked from room');
+      // cleanup local state and return to join
+      setJoined(false);
+      setTapDisabled(true);
+      setIsMidJoin(false);
+      isMidJoinRef.current = false;
+      setBgGreen(false);
+      setBgRed(false);
+      setWinner(null);
+      setLeaderboard([]);
+      setTimeLeft(null);
+    });
+
+    socket.on('roomEnded', (data: { message?: string }) => {
+      setToast(data?.message || 'Game ended by admin');
+      setJoined(false);
+      setTapDisabled(true);
+      setIsMidJoin(false);
+      isMidJoinRef.current = false;
+      setBgGreen(false);
+      setBgRed(false);
+      setWinner(null);
+      setLeaderboard([]);
+      setTimeLeft(null);
+    });
+
     // Inactivity tracking
     const activityEvents = ["mousemove", "keydown", "touchstart", "click"];
     const resetInactivity = () => {
@@ -234,7 +272,9 @@ export default function JoinPage() {
       socket.off("postTimerOpen");
       socket.off("roundReset");
       socket.off("gameEnded");
-      socket.off("disconnect");
+  socket.off("disconnect");
+  socket.off('kicked');
+  socket.off('roomEnded');
       activityEvents.forEach((ev) =>
         window.removeEventListener(ev, resetInactivity)
       );
@@ -354,21 +394,18 @@ export default function JoinPage() {
                   Winner: <strong>{winner.playerName}</strong>
                 </div>
               )}
+              {leaderboard && leaderboard.length > 0 && (
+                <div className="text-sm mt-3">
+                  <div className="font-semibold">Leaderboard</div>
+                  <ol className="list-decimal list-inside text-left inline-block mt-1">
+                    {leaderboard.map((r) => (
+                      <li key={r.playerId} className="text-sm">{r.playerName} — {r.tapCount}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
             </div>
           </div>
-
-          {/* Optional minimal leaderboard at bottom (kept tiny) */}
-          {leaderboard.length > 0 && (
-            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs bg-white/70 backdrop-blur px-3 py-2 rounded">
-              <ol className="list-decimal list-inside">
-                {leaderboard.map((r) => (
-                  <li key={r.playerId}>
-                    {r.playerName} — {r.tapCount}
-                  </li>
-                ))}
-              </ol>
-            </div>
-          )}
         </div>
       )}
     </div>

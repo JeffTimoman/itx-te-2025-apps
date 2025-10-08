@@ -277,6 +277,57 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Admin ends the game and kicks all players (except the admin) from the room
+  socket.on('endGame', async (data) => {
+    try {
+      const { roomId } = data;
+      const room = await gameManager.getRoom(roomId);
+      if (!room) {
+        socket.emit('endGameError', { message: 'Room not found' });
+        return;
+      }
+      // Only the host can forcibly end the game
+      if (room.host !== socket.id) {
+        socket.emit('endGameError', { message: 'Only the host can end the game' });
+        return;
+      }
+
+      // Iterate over players and remove/disconnect them (except host)
+      const playerIds = Object.keys(room.players || {});
+      for (const pid of playerIds) {
+        if (pid === socket.id) continue;
+        try {
+          // Remove from room in storage
+          await gameManager.leaveRoom(roomId, pid);
+        } catch (e) {
+          // ignore per-player errors
+        }
+
+        // Attempt to find and disconnect their socket
+        try {
+          const playerSocket = io.sockets.sockets.get(pid);
+          if (playerSocket) {
+            try {
+              playerSocket.emit('kicked', { message: 'The admin ended the game' });
+            } catch (e) {}
+            try { playerSocket.leave(roomId); } catch (e) {}
+            try { playerSocket.disconnect(true); } catch (e) {}
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+
+      // Refresh room state and notify remaining clients (admin)
+      const updated = await gameManager.getRoom(roomId);
+      io.to(roomId).emit('roomEnded', { message: 'Game ended by admin', room: updated });
+      socket.emit('endGameAck', { success: true });
+    } catch (err) {
+      console.error('Error ending game', err);
+      socket.emit('endGameError', { message: 'Failed to end game' });
+    }
+  });
+
   // Leave room
   socket.on('leaveRoom', async (data) => {
     try {
@@ -299,7 +350,12 @@ io.on('connection', (socket) => {
   socket.on('disconnect', async () => {
     console.log('Client disconnected:', socket.id);
     try {
-      await gameManager.handleDisconnect(socket.id);
+      const result = await gameManager.handleDisconnect(socket.id);
+      // If handleDisconnect returned a leaveRoom result with room info, notify other clients
+      if (result && result.success && result.room) {
+        const roomId = result.room.id || result.roomId;
+        try { io.to(roomId).emit('playerLeft', { playerId: socket.id, room: result.room }); } catch (e) { }
+      }
     } catch (error) {
       console.error('Error handling disconnect:', error);
     }
