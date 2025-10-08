@@ -192,9 +192,9 @@ class GameManager {
   // Clear any previous round's firstTap/awaitingAnswer so a fresh round starts clean
   delete room.firstTap;
   delete room.awaitingAnswer;
-  // Clear any previous taps/round winners so they don't interfere
+  // Clear any previous taps so the new play doesn't reuse old tap records
+  // but keep room.roundWinners so prior winners remain blocked until an admin reset
   delete room.taps;
-  delete room.roundWinners;
 
       await this._setEx(roomKey, 3600, JSON.stringify(room));
 
@@ -319,7 +319,12 @@ class GameManager {
       }
 
       // Record the round winners on the room so they can be blocked until reset
-      room.roundWinners = winners.map((w) => w.playerId);
+      // append to existing winners so multiple rounds without reset keep previous winners blocked
+      if (!Array.isArray(room.roundWinners)) room.roundWinners = [];
+      const newWinnerIds = winners.map((w) => w.playerId);
+      for (const id of newWinnerIds) {
+        if (!room.roundWinners.includes(id)) room.roundWinners.push(id);
+      }
       // also keep the firstTap field for compatibility with older code
       if (winner) {
         room.firstTap = { playerId: winner.playerId, playerName: winner.playerName, timestamp: room.gameEndTime };
