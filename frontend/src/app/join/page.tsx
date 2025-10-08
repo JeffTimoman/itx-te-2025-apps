@@ -28,7 +28,7 @@ export default function JoinPage() {
   const [tapDisabled, setTapDisabled] = useState(true);
   const [isMidJoin, setIsMidJoin] = useState(false);
 
-  const [leaderboard, setLeaderboard] = useState<PlayerResult[]>([]);
+  // Leaderboard not used — we only show the first-tap winner
 
   const timerRef = useRef<number | null>(null);
   const endTsRef = useRef<number | null>(null);
@@ -45,6 +45,9 @@ export default function JoinPage() {
       (data: { roomId: string; playerName: string; playerId?: string; room?: RoomLike }) => {
         setJoined(true);
         setToast(`Joined ${data.roomId} as ${data.playerName}`);
+        // clear any stale colors when joining
+        setBgGreen(false);
+        setBgRed(false);
         if (data.playerId) setOwnId(data.playerId);
         if (data.room?.host) setHostId(data.room.host);
 
@@ -73,15 +76,16 @@ export default function JoinPage() {
         isMidJoin?: boolean;
       }) => {
         setToast("Game started");
+        // clear any previous round colors at the start of a new game
         setBgGreen(false);
+        setBgRed(false);
         setTapDisabled(true);
 
         const mid = Boolean(data.isMidJoin);
         setIsMidJoin(mid);
         isMidJoinRef.current = mid;
 
-        setWinner(null);
-        setLeaderboard([]);
+  setWinner(null);
 
         const totalMs = data.durationMs ?? data.gameState?.duration ?? 30000;
         const serverStart = data.startTime ?? Date.now();
@@ -151,10 +155,9 @@ export default function JoinPage() {
 
     socket.on("roundReset", (data: { message?: string }) => {
       setToast(data?.message || "Round reset");
-      setWinner(null);
-      setBgGreen(false);
-      setBgRed(false);
-      setLeaderboard([]);
+  setWinner(null);
+  setBgGreen(false);
+  setBgRed(false);
       setTapDisabled(false);
       setIsMidJoin(false);
       isMidJoinRef.current = false;
@@ -175,12 +178,7 @@ export default function JoinPage() {
       setToast(`Winner: ${data.winner?.playerName || "N/A"}`);
       setWinner(data.winner || null);
       setTapDisabled(true);
-      if (data.results) {
-        const filtered = hostId
-          ? data.results.filter((r) => r.playerId !== hostId)
-          : data.results;
-        setLeaderboard(filtered);
-      }
+      // results are a simple list of players; we only care about data.winner
       // color screens: winner green, losers red (unless mid-joiners)
       if (data.winner && ownId) {
         if (data.winner.playerId === ownId) {
@@ -216,21 +214,20 @@ export default function JoinPage() {
       setBgGreen(false);
       setBgRed(false);
       setWinner(null);
-      setLeaderboard([]);
+  // leaderboard cleared (no-op)
       setTimeLeft(null);
     });
 
     socket.on('roomEnded', (data: { message?: string }) => {
-      setToast(data?.message || 'Game ended by admin');
-      setJoined(false);
-      setTapDisabled(true);
-      setIsMidJoin(false);
-      isMidJoinRef.current = false;
-      setBgGreen(false);
-      setBgRed(false);
-      setWinner(null);
-      setLeaderboard([]);
-      setTimeLeft(null);
+  setToast(data?.message || 'Game ended by admin');
+  setJoined(false);
+  setTapDisabled(true);
+  setIsMidJoin(false);
+  isMidJoinRef.current = false;
+  setBgGreen(false);
+  setBgRed(false);
+  setWinner(null);
+  setTimeLeft(null);
     });
 
     socket.on('tapDenied', (data: { message?: string }) => {
@@ -401,16 +398,7 @@ export default function JoinPage() {
                   Winner: <strong>{winner.playerName}</strong>
                 </div>
               )}
-              {leaderboard && leaderboard.length > 0 && (
-                <div className="text-sm mt-3">
-                  <div className="font-semibold">Leaderboard</div>
-                  <ol className="list-decimal list-inside text-left inline-block mt-1">
-                    {leaderboard.map((r) => (
-                      <li key={r.playerId} className="text-sm">{r.playerName} — {r.tapCount}</li>
-                    ))}
-                  </ol>
-                </div>
-              )}
+              {/* no leaderboard displayed */}
             </div>
           </div>
         </div>

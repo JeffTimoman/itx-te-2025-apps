@@ -178,14 +178,10 @@ io.on('connection', (socket) => {
       const result = await gameManager.registerTap(roomId, socket.id);
       
       if (result.success) {
-        // Broadcast tap to all players in the room
-        io.to(roomId).emit('tapRegistered', { 
-          playerId: socket.id,
-          tapCount: result.tapCount,
-          leaderboard: result.leaderboard
-        });
-        } else {
-          try { socket.emit('tapDenied', { message: result.message, tapCount: result.tapCount, leaderboard: result.leaderboard }); } catch (e) {}
+        // Broadcast tap to all players in the room (no scores)
+        io.to(roomId).emit('tapRegistered', { playerId: socket.id });
+      } else {
+        try { socket.emit('tapDenied', { message: result.message }); } catch (e) {}
       }
     } catch (error) {
       console.error('Error registering tap:', error);

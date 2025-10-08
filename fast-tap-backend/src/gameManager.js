@@ -188,9 +188,10 @@ class GameManager {
       room.gameDuration = parseInt(durationSeconds) * 1000; // store ms
 
       // Reset all player tap counts
-      Object.keys(room.players).forEach((playerId) => {
-        room.players[playerId].tapCount = 0;
-      });
+      // No tap counts needed — we only track the first tap
+  // Clear any previous round's firstTap/awaitingAnswer so a fresh round starts clean
+  delete room.firstTap;
+  delete room.awaitingAnswer;
 
       await this._setEx(roomKey, 3600, JSON.stringify(room));
 
@@ -238,20 +239,9 @@ class GameManager {
 
       // Prevent the last round's winner from tapping again until an admin resets the round
       if (room.lastWinner && room.lastWinner === playerId) {
-        const leaderboard = Object.values(room.players)
-          .sort((a, b) => b.tapCount - a.tapCount)
-          .map((player, index) => ({
-            rank: index + 1,
-            playerId: player.id,
-            playerName: player.name,
-            tapCount: player.tapCount,
-          }));
-
         return {
           success: false,
           message: "You cannot tap because you already tapped in the last round",
-          tapCount: room.players[playerId] ? room.players[playerId].tapCount : 0,
-          leaderboard,
         };
       }
 
@@ -262,26 +252,11 @@ class GameManager {
 
       // If a first tap already occurred, ignore additional taps
       if (room.firstTap) {
-        // still return current tapCount and leaderboard
-        const leaderboard = Object.values(room.players)
-          .sort((a, b) => b.tapCount - a.tapCount)
-          .map((player, index) => ({
-            rank: index + 1,
-            playerId: player.id,
-            playerName: player.name,
-            tapCount: player.tapCount,
-          }));
-
         return {
           success: false,
           message: "Tap ignored, first tap already registered",
-          tapCount: room.players[playerId].tapCount,
-          leaderboard,
         };
       }
-
-      // Increment tap count (first tap should be recorded)
-      room.players[playerId].tapCount += 1;
 
       // If this is the first tap, record it and mark awaitingAnswer (do NOT finish the round)
       if (!room.firstTap) {
@@ -297,20 +272,8 @@ class GameManager {
 
       await this._setEx(roomKey, 3600, JSON.stringify(room));
 
-      // Generate leaderboard
-      const leaderboard = Object.values(room.players)
-        .sort((a, b) => b.tapCount - a.tapCount)
-        .map((player, index) => ({
-          rank: index + 1,
-          playerId: player.id,
-          playerName: player.name,
-          tapCount: player.tapCount,
-        }));
-
       return {
         success: true,
-        tapCount: room.players[playerId].tapCount,
-        leaderboard,
         firstTap: room.firstTap,
       };
     } catch (error) {
@@ -335,18 +298,14 @@ class GameManager {
       room.status = "finished";
       room.gameEndTime = Date.now();
 
-      // Calculate results
-      const results = Object.values(room.players)
-        .sort((a, b) => b.tapCount - a.tapCount)
-        .map((player, index) => ({
-          rank: index + 1,
-          playerId: player.id,
-          playerName: player.name,
-          tapCount: player.tapCount,
-        }));
-
-
-      const winner = results.length > 0 ? results[0] : null;
+      // Determine winner from the recorded firstTap if present
+      let winner = null;
+      if (room.firstTap) {
+        winner = {
+          playerId: room.firstTap.playerId,
+          playerName: room.firstTap.playerName,
+        };
+      }
 
       // Record the last round winner on the room so they can be blocked until reset
       if (winner && winner.playerId) {
@@ -355,7 +314,9 @@ class GameManager {
 
       await this._setEx(roomKey, 3600, JSON.stringify(room));
 
-      return { success: true, results, winner };
+      // Return a simple list of players (no scores) and the winner (firstTap)
+      const players = Object.values(room.players).map(p => ({ playerId: p.id, playerName: p.name }));
+      return { success: true, results: players, winner };
     } catch (error) {
       console.error("Error ending game:", error);
       return { success: false, message: "Failed to end game" };

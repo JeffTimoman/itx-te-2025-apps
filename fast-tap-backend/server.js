@@ -242,16 +242,14 @@ io.on('connection', (socket) => {
             });
           }
         }
-        // Broadcast tap to all players in the room
+        // Broadcast tap to all players in the room (no scores)
         io.to(roomId).emit('tapRegistered', { 
           playerId: socket.id,
-          tapCount: result.tapCount,
-          leaderboard: result.leaderboard
         });
       } else {
         // Inform the tapping client why the tap was rejected (e.g., last winner)
         try {
-          socket.emit('tapDenied', { message: result.message, tapCount: result.tapCount, leaderboard: result.leaderboard });
+          socket.emit('tapDenied', { message: result.message });
         } catch (e) {}
       }
     } catch (error) {
@@ -273,10 +271,7 @@ io.on('connection', (socket) => {
   delete room.lastWinner;
   delete room.gameStartTime;
   delete room.gameDuration;
-      // reset tap counts
-      Object.keys(room.players).forEach(pid => {
-        room.players[pid].tapCount = 0;
-      });
+      // no tap counts stored — nothing to reset here
       await gameManager._setEx(`${gameManager.ROOM_PREFIX}${roomId}`, 3600, JSON.stringify(room));
       io.to(roomId).emit('roundReset', { message: 'Round has been reset by admin', room });
     } catch (err) {
