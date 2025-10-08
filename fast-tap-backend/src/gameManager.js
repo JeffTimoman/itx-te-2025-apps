@@ -192,6 +192,9 @@ class GameManager {
   // Clear any previous round's firstTap/awaitingAnswer so a fresh round starts clean
   delete room.firstTap;
   delete room.awaitingAnswer;
+  // Clear any previous taps/round winners so they don't interfere
+  delete room.taps;
+  delete room.roundWinners;
 
       await this._setEx(roomKey, 3600, JSON.stringify(room));
 
@@ -238,10 +241,11 @@ class GameManager {
       }
 
       // Prevent the last round's winner from tapping again until an admin resets the round
-      if (room.lastWinner && room.lastWinner === playerId) {
+      // Prevent any winner(s) from this round from tapping again until an admin resets the round
+      if (Array.isArray(room.roundWinners) && room.roundWinners.includes(playerId)) {
         return {
           success: false,
-          message: "You cannot tap because you already tapped in the last round",
+          message: "You cannot tap because you already won in this round",
         };
       }
 
@@ -250,31 +254,33 @@ class GameManager {
         return { success: false, message: "Player not in room" };
       }
 
-      // If a first tap already occurred, ignore additional taps
-      if (room.firstTap) {
-        return {
-          success: false,
-          message: "Tap ignored, first tap already registered",
-        };
+      // Collect taps for this post phase so we can detect ties/multiple winners
+      if (!Array.isArray(room.taps)) room.taps = [];
+
+      // Prevent duplicate taps from the same player in the same post phase
+      if (room.taps.some((t) => t.playerId === playerId)) {
+        return { success: false, message: 'Tap already registered for this player' };
       }
 
-      // If this is the first tap, record it and mark awaitingAnswer (do NOT finish the round)
-      if (!room.firstTap) {
-        const ts = Date.now();
-        room.firstTap = {
-          playerId,
-          playerName: room.players[playerId].name,
-          timestamp: ts,
-        };
-        // mark that we are awaiting the answer from the first tapper
-        room.awaitingAnswer = true;
-      }
+      const ts = Date.now();
+      const tap = {
+        playerId,
+        playerName: room.players[playerId].name,
+        timestamp: ts,
+      };
+
+      room.taps.push(tap);
+
+      // mark that we are awaiting the answer from the first tapper(s)
+      room.awaitingAnswer = true;
 
       await this._setEx(roomKey, 3600, JSON.stringify(room));
 
       return {
         success: true,
-        firstTap: room.firstTap,
+        tap,
+        // indicates this was the first tap recorded for this post phase
+        firstTapRecorded: room.taps.length === 1,
       };
     } catch (error) {
       console.error("Error registering tap:", error);
@@ -298,18 +304,27 @@ class GameManager {
       room.status = "finished";
       room.gameEndTime = Date.now();
 
-      // Determine winner from the recorded firstTap if present
+      // Determine winner(s) from recorded taps (support multiple winners with identical timestamps)
       let winner = null;
-      if (room.firstTap) {
-        winner = {
-          playerId: room.firstTap.playerId,
-          playerName: room.firstTap.playerName,
-        };
+      const winners = [];
+      if (Array.isArray(room.taps) && room.taps.length > 0) {
+        // find the earliest timestamp
+        const minTs = Math.min(...room.taps.map((t) => t.timestamp));
+        const winningTaps = room.taps.filter((t) => t.timestamp === minTs);
+        for (const t of winningTaps) {
+          winners.push({ playerId: t.playerId, playerName: t.playerName });
+        }
+        // pick the first as the primary winner for backward compatibility
+        winner = winners[0] || null;
       }
 
-      // Record the last round winner on the room so they can be blocked until reset
-      if (winner && winner.playerId) {
-        room.lastWinner = winner.playerId;
+      // Record the round winners on the room so they can be blocked until reset
+      room.roundWinners = winners.map((w) => w.playerId);
+      // also keep the firstTap field for compatibility with older code
+      if (winner) {
+        room.firstTap = { playerId: winner.playerId, playerName: winner.playerName, timestamp: room.gameEndTime };
+      } else {
+        delete room.firstTap;
       }
 
       await this._setEx(roomKey, 3600, JSON.stringify(room));

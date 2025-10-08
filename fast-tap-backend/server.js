@@ -218,29 +218,38 @@ io.on('connection', (socket) => {
       const result = await gameManager.registerTap(roomId, socket.id);
       
       if (result.success) {
-        // If this tap created the firstTap, clear timer and immediately end the round
-        if (result.firstTap) {
-          // clear timer
+        // If this was the first tap recorded in the post phase, start a short tie window
+        // to allow near-simultaneous taps to be collected before finalizing winners.
+        if (result.firstTapRecorded) {
+          // clear the main game timer if present (we're in post phase, but be safe)
           if (global._gameTimers && global._gameTimers[roomId]) {
             clearTimeout(global._gameTimers[roomId]);
             delete global._gameTimers[roomId];
           }
-          // announce first tap and disable taps for everyone
+
+          // Notify clients about the first tap(s) being captured
           io.to(roomId).emit('firstTap', {
-            playerId: result.firstTap.playerId,
-            playerName: result.firstTap.playerName,
-            timestamp: result.firstTap.timestamp
+            playerId: result.tap.playerId,
+            playerName: result.tap.playerName,
+            timestamp: result.tap.timestamp
           });
           io.to(roomId).emit('disableTaps', { message: 'First tap received' });
 
-          // Immediately end the game and broadcast results
-          const endResult = await gameManager.endGame(roomId);
-          if (endResult.success) {
-            io.to(roomId).emit('gameEnded', {
-              results: endResult.results,
-              winner: endResult.winner
-            });
-          }
+          // Wait a short tie-window (e.g., 150ms) to collect near-simultaneous taps
+          const TIE_WINDOW_MS = 150;
+          setTimeout(async () => {
+            try {
+              const endResult = await gameManager.endGame(roomId);
+              if (endResult.success) {
+                io.to(roomId).emit('gameEnded', {
+                  results: endResult.results,
+                  winner: endResult.winner
+                });
+              }
+            } catch (e) {
+              console.warn('Error finalizing endGame after tie window', e && e.message);
+            }
+          }, TIE_WINDOW_MS);
         }
         // Broadcast tap to all players in the room (no scores)
         io.to(roomId).emit('tapRegistered', { 
@@ -265,10 +274,13 @@ io.on('connection', (socket) => {
       if (!room) return;
       delete room.firstTap;
   delete room.awaitingAnswer;
-  // reset status to waiting so next round can be started fresh
-  room.status = 'waiting';
-  // clear lastWinner so previous winner can tap again
+  // reset status to post so taps are immediately allowed again after reset
+  room.status = 'post';
+  // clear any recorded taps so players can tap again
+  delete room.taps;
+  // clear lastWinner/roundWinners so previous winners can tap again
   delete room.lastWinner;
+  delete room.roundWinners;
   delete room.gameStartTime;
   delete room.gameDuration;
       // no tap counts stored — nothing to reset here
