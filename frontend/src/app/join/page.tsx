@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { getSocket } from "../../lib/socket";
 
+// --- Types ---
 type PlayerResult = { playerId: string; playerName: string; tapCount: number };
 type FirstTapEvent = {
   playerId: string;
@@ -12,40 +13,67 @@ type FirstTapEvent = {
 type GameEndedEvent = { results?: PlayerResult[]; winner?: PlayerResult };
 type RoomLike = { host?: string };
 
+/**
+ * JoinPage — polished UX/UI
+ *
+ * Highlights
+ * - Clean split layout (hero + card) on desktop, single column on mobile
+ * - Smart join form: uppercase room code, inline validation, Enter-to-join
+ * - Subtle toasts, status bar, and keyboard help
+ * - Clear game states with color-safe backgrounds and large typography
+ * - Accessible (labels, roles, focus ring, aria-live)
+ */
 export default function JoinPage() {
+  // --- Core state ---
   const [roomId, setRoomId] = useState("");
   const [name, setName] = useState("");
   const [joined, setJoined] = useState(false);
 
-  const [toast, setToast] = useState<string>(""); // tiny, unobtrusive message
+  // --- UI/UX state ---
+  const [toast, setToast] = useState<string>("");
   const [winner, setWinner] = useState<PlayerResult | null>(null);
   const [hostId, setHostId] = useState<string | null>(null);
-
   const [ownId, setOwnId] = useState<string | null>(null);
   const [bgGreen, setBgGreen] = useState(false);
   const [bgRed, setBgRed] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [tapDisabled, setTapDisabled] = useState(true);
   const [isMidJoin, setIsMidJoin] = useState(false);
+  const [isJoining, setIsJoining] = useState(false);
 
-  // Leaderboard not used — we only show the first-tap winner
-
+  // --- timers/refs ---
   const timerRef = useRef<number | null>(null);
   const endTsRef = useRef<number | null>(null);
   const isMidJoinRef = useRef<boolean>(false);
   const inactivityRef = useRef<number | null>(null);
 
-  const INACTIVITY_SECONDS = 180;
+  const INACTIVITY_SECONDS = 60;
 
+  // --- Derived validations ---
+  const cleanRoom = (v: string) =>
+    v
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 8);
+  const roomValid = roomId.trim().length >= 4; // relax pattern a bit, still guard
+  const nameValid = name.trim().length >= 2;
+  const canJoin = roomValid && nameValid && !isJoining;
+
+  // --- Effects: socket wiring ---
   useEffect(() => {
     const socket = getSocket();
 
     socket.on(
       "joinedRoom",
-      (data: { roomId: string; playerName: string; playerId?: string; room?: RoomLike }) => {
+      (data: {
+        roomId: string;
+        playerName: string;
+        playerId?: string;
+        room?: RoomLike;
+      }) => {
         setJoined(true);
+        setIsJoining(false);
         setToast(`Joined ${data.roomId} as ${data.playerName}`);
-        // clear any stale colors when joining
         setBgGreen(false);
         setBgRed(false);
         if (data.playerId) setOwnId(data.playerId);
@@ -64,6 +92,7 @@ export default function JoinPage() {
     );
 
     socket.on("joinRoomError", (err: { message?: string }) => {
+      setIsJoining(false);
       setToast(err.message || "Failed to join");
     });
 
@@ -76,7 +105,6 @@ export default function JoinPage() {
         isMidJoin?: boolean;
       }) => {
         setToast("Game started");
-        // clear any previous round colors at the start of a new game
         setBgGreen(false);
         setBgRed(false);
         setTapDisabled(true);
@@ -84,8 +112,7 @@ export default function JoinPage() {
         const mid = Boolean(data.isMidJoin);
         setIsMidJoin(mid);
         isMidJoinRef.current = mid;
-
-  setWinner(null);
+        setWinner(null);
 
         const totalMs = data.durationMs ?? data.gameState?.duration ?? 30000;
         const serverStart = data.startTime ?? Date.now();
@@ -99,7 +126,10 @@ export default function JoinPage() {
           }
           const tick = () => {
             if (!endTsRef.current) return;
-            const left = Math.max(0, Math.floor((endTsRef.current - Date.now()) / 1000));
+            const left = Math.max(
+              0,
+              Math.floor((endTsRef.current - Date.now()) / 1000)
+            );
             setTimeLeft(left);
             if (left <= 0 && timerRef.current) {
               clearInterval(timerRef.current);
@@ -118,7 +148,6 @@ export default function JoinPage() {
         playerName: data.playerName,
         tapCount: 1,
       });
-      // color: winner green, other active participants red (ignore mid-joiners)
       if (ownId && data.playerId === ownId) {
         setBgGreen(true);
         setBgRed(false);
@@ -138,8 +167,10 @@ export default function JoinPage() {
     socket.on("timeExpiredNoTap", () => {
       setToast("No taps — taps open");
       if (!isMidJoinRef.current) setTapDisabled(false);
-      // stop tick and immediately show 0
-      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
       endTsRef.current = null;
       setTimeLeft(0);
     });
@@ -147,17 +178,19 @@ export default function JoinPage() {
     socket.on("postTimerOpen", (data: { message?: string }) => {
       setToast(data?.message || "Taps open");
       if (!isMidJoinRef.current) setTapDisabled(false);
-      // ensure countdown is cleared and shows 0 immediately
-      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
       endTsRef.current = null;
       setTimeLeft(0);
     });
 
     socket.on("roundReset", (data: { message?: string }) => {
       setToast(data?.message || "Round reset");
-  setWinner(null);
-  setBgGreen(false);
-  setBgRed(false);
+      setWinner(null);
+      setBgGreen(false);
+      setBgRed(false);
       setTapDisabled(false);
       setIsMidJoin(false);
       isMidJoinRef.current = false;
@@ -178,17 +211,13 @@ export default function JoinPage() {
       setToast(`Winner: ${data.winner?.playerName || "N/A"}`);
       setWinner(data.winner || null);
       setTapDisabled(true);
-      // results are a simple list of players; we only care about data.winner
-      // color screens: winner green, losers red (unless mid-joiners)
       if (data.winner && ownId) {
         if (data.winner.playerId === ownId) {
           setBgGreen(true);
           setBgRed(false);
-        } else {
-          if (!isMidJoinRef.current) {
-            setBgGreen(false);
-            setBgRed(true);
-          }
+        } else if (!isMidJoinRef.current) {
+          setBgGreen(false);
+          setBgRed(true);
         }
       }
       if (inactivityRef.current) {
@@ -201,12 +230,11 @@ export default function JoinPage() {
       setJoined(false);
       setTapDisabled(true);
       setToast("Disconnected — rejoin");
+      setIsJoining(false);
     });
 
-    // Admin kicked this client (end game)
-    socket.on('kicked', (data: { message?: string }) => {
-      setToast(data?.message || 'Kicked from room');
-      // cleanup local state and return to join
+    socket.on("kicked", (data: { message?: string }) => {
+      setToast(data?.message || "Kicked from room");
       setJoined(false);
       setTapDisabled(true);
       setIsMidJoin(false);
@@ -214,26 +242,23 @@ export default function JoinPage() {
       setBgGreen(false);
       setBgRed(false);
       setWinner(null);
-  // leaderboard cleared (no-op)
       setTimeLeft(null);
     });
 
-    socket.on('roomEnded', (data: { message?: string }) => {
-  setToast(data?.message || 'Game ended by admin');
-  setJoined(false);
-  setTapDisabled(true);
-  setIsMidJoin(false);
-  isMidJoinRef.current = false;
-  setBgGreen(false);
-  setBgRed(false);
-  setWinner(null);
-  setTimeLeft(null);
+    socket.on("roomEnded", (data: { message?: string }) => {
+      setToast(data?.message || "Game ended by admin");
+      setJoined(false);
+      setTapDisabled(true);
+      setIsMidJoin(false);
+      isMidJoinRef.current = false;
+      setBgGreen(false);
+      setBgRed(false);
+      setWinner(null);
+      setTimeLeft(null);
     });
 
-    socket.on('tapDenied', (data: { message?: string }) => {
-      // e.g., 'You cannot tap because you already tapped in the last round'
-      setToast(data?.message || 'Tap denied');
-      // ensure the client doesn't allow tapping again until reset
+    socket.on("tapDenied", (data: { message?: string }) => {
+      setToast(data?.message || "Tap denied");
       setTapDisabled(true);
     });
 
@@ -276,9 +301,10 @@ export default function JoinPage() {
       socket.off("postTimerOpen");
       socket.off("roundReset");
       socket.off("gameEnded");
-  socket.off("disconnect");
-  socket.off('kicked');
-  socket.off('roomEnded');
+      socket.off("disconnect");
+      socket.off("kicked");
+      socket.off("roomEnded");
+      socket.off("tapDenied");
       activityEvents.forEach((ev) =>
         window.removeEventListener(ev, resetInactivity)
       );
@@ -288,27 +314,29 @@ export default function JoinPage() {
     };
   }, [name, joined, roomId, hostId, ownId]);
 
+  // --- Actions ---
   function handleJoin() {
-    if (!roomId || !name) {
-      setToast("Enter code & name");
+    if (!roomValid || !nameValid) {
+      setToast("Enter a valid code & name");
       return;
     }
+    setIsJoining(true);
     getSocket().emit("joinRoom", {
       roomId: roomId.toUpperCase(),
-      playerName: name,
+      playerName: name.trim(),
     });
   }
 
   function handleTap() {
     if (tapDisabled) return;
     getSocket().emit("tap", { roomId: roomId.toUpperCase() });
-    setTapDisabled(true); // prevent double taps locally
+    setTapDisabled(true);
   }
 
   // Whole-screen pointer handler; ignore taps on inputs/buttons when not joined
   function handlePointerTap(e: React.PointerEvent<HTMLDivElement>) {
     const target = e.target as HTMLElement;
-    if (!joined) return; // join screen shouldn't trigger taps
+    if (!joined) return;
     if (
       target &&
       (target.closest("button") ||
@@ -319,67 +347,208 @@ export default function JoinPage() {
     if (!tapDisabled) handleTap();
   }
 
+  // --- UI ---
   return (
     <div
-      className="w-screen h-dvh min-h-screen min-w-full"
+      className="w-screen h-dvh min-h-screen min-w-full bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-slate-100"
       onPointerDown={handlePointerTap}
       onKeyDown={(e) => {
+        if (!joined && (e.key === "Enter" || e.key === " ")) {
+          // allow Enter to submit when on the form
+          const active = document.activeElement as HTMLElement | null;
+          if (
+            active &&
+            (active.tagName === "INPUT" || active.tagName === "BUTTON")
+          ) {
+            e.preventDefault();
+            if (canJoin) handleJoin();
+          }
+        }
         if (joined && !tapDisabled && (e.key === "Enter" || e.key === " ")) {
           e.preventDefault();
           handleTap();
         }
       }}
       tabIndex={0}
-      role="button"
+      role="application"
+      aria-label="Tap game"
     >
-      {!joined ? (
-        // FULL-SCREEN JOIN
-        <div className="w-full h-full flex items-center justify-center">
-          <div className="w-full max-w-sm p-4 flex flex-col gap-2">
-            <input
-              value={roomId}
-              onChange={(e) => setRoomId(e.target.value)}
-              placeholder="Game code"
-              className="p-3 border rounded"
-            />
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Your name (unique)"
-              className="p-3 border rounded"
-            />
-            <button
-              onClick={handleJoin}
-              className="p-3 rounded bg-blue-600 text-white"
-            >
-              Join
-            </button>
-            {toast && <div className="text-xs text-gray-600 mt-1">{toast}</div>}
+      {/* Top Status Bar */}
+      <header className="sticky top-0 z-20 backdrop-blur supports-[backdrop-filter]:bg-white/5 bg-white/0 border-b border-white/10">
+        <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-xl bg-white/10 grid place-content-center text-sm font-bold">
+              ITX
+            </div>
+            <div className="text-sm opacity-80">
+              {joined ? (
+                <span>
+                  Room{" "}
+                  <span className="font-semibold tracking-wider">
+                    {roomId || "—"}
+                  </span>{" "}
+                  • You: <span className="font-semibold">{name || "—"}</span>
+                </span>
+              ) : (
+                <span className="opacity-80">Application Var For ITX - Join Room to Play!</span>
+              )}
+            </div>
+          </div>
+          <div className="text-xs opacity-70 hidden sm:block">
+            {joined
+              ? tapDisabled
+                ? "Tap disabled"
+                : "Tap anywhere • Space/Enter"
+              : "Ask the code to Panitia TE."}
           </div>
         </div>
+      </header>
+
+      {/* Main */}
+      {!joined ? (
+        <main className="mx-auto max-w-5xl px-4 py-8 md:py-14 grid md:grid-cols-2 gap-8 items-center">
+          {/* Hero */}
+          <section className="hidden md:block">
+            <div className="rounded-3xl p-8 bg-white/5 border border-white/10 shadow-2xl">
+              <h1 className="text-3xl font-extrabold tracking-tight">
+                ITX - Team Engagement VAR
+              </h1>
+              <p className="mt-3 text-sm leading-relaxed text-slate-300">
+                App developed for the Team Engagement of ITX.
+              </p>
+              <ul className="mt-6 space-y-2 text-sm text-slate-300">
+                <li>
+                  • Press <span className="font-semibold">Enter</span> or{" "}
+                  <span className="font-semibold">Space</span> to tap
+                </li>
+                <li>• Inactive players auto-leave after 1 minutes</li>
+                <li>• Mid-joiners wait for the next round</li>
+              </ul>
+            </div>
+          </section>
+
+          {/* Join Card */}
+          <section>
+            <div className="rounded-3xl p-6 md:p-8 bg-white/5 border border-white/10 shadow-2xl">
+              <h2 className="text-xl font-bold">Join a Room</h2>
+              <p className="mt-1 text-sm text-slate-300">
+                Ask the host for the code to play games.
+              </p>
+
+              <div className="mt-6 grid gap-4">
+                <div>
+                  <label
+                    htmlFor="room"
+                    className="block text-xs uppercase tracking-wider opacity-80 mb-1"
+                  >
+                    Game code
+                  </label>
+                  <input
+                    id="room"
+                    value={roomId}
+                    onChange={(e) => setRoomId(cleanRoom(e.target.value))}
+                    placeholder="e.g., 4F7K"
+                    inputMode="text"
+                    className={`w-full p-3 rounded-xl bg-white/10 border ${
+                      roomValid ? "border-white/20" : "border-red-400/40"
+                    } outline-none focus:ring-2 focus:ring-indigo-400/60`}
+                    aria-invalid={!roomValid}
+                    aria-describedby={!roomValid ? "room-error" : undefined}
+                  />
+                  {!roomValid && (
+                    <p id="room-error" className="mt-1 text-xs text-red-300">
+                      Code must be at least 4 characters (letters/numbers).
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="name"
+                    className="block text-xs uppercase tracking-wider opacity-80 mb-1"
+                  >
+                    Your name (unique)
+                  </label>
+                  <input
+                    id="name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="e.g., U081591 - Budi Budi"
+                    className={`w-full p-3 rounded-xl bg-white/10 border ${
+                      nameValid ? "border-white/20" : "border-red-400/40"
+                    } outline-none focus:ring-2 focus:ring-indigo-400/60`}
+                    aria-invalid={!nameValid}
+                    aria-describedby={!nameValid ? "name-error" : undefined}
+                  />
+                  {!nameValid && (
+                    <p id="name-error" className="mt-1 text-xs text-red-300">
+                      Name must be at least 2 characters.
+                    </p>
+                  )}
+                </div>
+
+                <button
+                  onClick={handleJoin}
+                  disabled={!canJoin}
+                  className="relative inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold bg-indigo-500/90 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-slate-900 transition"
+                >
+                  {isJoining && (
+                    <span className="absolute left-4 inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
+                  )}
+                  {isJoining ? "Joining…" : "Join"}
+                </button>
+
+                {toast && (
+                  <div
+                    className="text-xs text-slate-200/90 mt-1"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {toast}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        </main>
       ) : (
-        // FULL-SCREEN TAP SURFACE
-        <div
-          className={`w-full h-full relative select-none transition-colors duration-200 ${
-            bgGreen ? "bg-green-500" : bgRed ? "bg-red-600" : "bg-gray-200"
-          }`}
-        >
-          {/* Subtle banners */}
+        // --- Play Surface ---
+        <main className="relative w-full h-[calc(100dvh-56px)] select-none">
+          <div
+            className={`absolute inset-0 transition-colors duration-300 ${
+              bgGreen
+                ? "bg-emerald-600"
+                : bgRed
+                ? "bg-rose-600"
+                : "bg-slate-800"
+            }`}
+          />
+
+          {/* subtle vignette */}
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.12),transparent_60%)]" />
+
+          {/* Mid-join banner */}
           {isMidJoin && (
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1 text-xs bg-yellow-300 text-black rounded">
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 px-3 py-1 text-xs bg-amber-300 text-black rounded-full border border-amber-500/50 shadow">
               Joined mid-round — wait next round
             </div>
           )}
+
+          {/* Toast (top-right) */}
           {toast && (
-            <div className="absolute top-3 right-3 px-3 py-1 text-xs bg-black/70 text-white rounded">
+            <div className="absolute top-3 right-3 px-3 py-1 text-xs bg-white/20 text-white rounded-full border border-white/30 backdrop-blur">
               {toast}
             </div>
           )}
 
           {/* Center status */}
-          <div className="w-full h-full flex items-center justify-center">
-            <div className="text-center">
-              <div className={`text-6xl font-extrabold mb-2 ${bgGreen || bgRed ? 'text-white' : 'text-black'}`}>
+          <div className="h-full w-full grid place-items-center">
+            <div className="text-center px-6">
+              <div
+                className={`text-6xl md:text-7xl font-black tracking-tight drop-shadow-sm ${
+                  bgGreen || bgRed ? "text-white" : "text-white"
+                }`}
+              >
                 {bgGreen
                   ? "You tapped first!"
                   : timeLeft !== null
@@ -387,22 +556,65 @@ export default function JoinPage() {
                   : "Waiting…"}
               </div>
               <div
-                className={`text-lg ${
-                  tapDisabled ? "text-white/80" : (bgGreen || bgRed ? 'text-white' : 'text-black')
+                className={`mt-3 text-base md:text-lg ${
+                  tapDisabled ? "text-white/80" : "text-white"
                 }`}
               >
-                {tapDisabled ? "Tap disabled" : "Tap anywhere"}
+                {tapDisabled ? "Tap disabled" : "Tap anywhere (Space/Enter)"}
               </div>
               {winner && !bgGreen && (
-                <div className="text-sm mt-2">
+                <div className="mt-2 text-sm text-white/90">
                   Winner: <strong>{winner.playerName}</strong>
                 </div>
               )}
-              {/* no leaderboard displayed */}
+
+              {/* Progress bar when countdown active */}
+              {typeof timeLeft === "number" && (
+                <div className="mt-6 h-2 w-[min(80vw,680px)] bg-white/15 rounded-xl overflow-hidden">
+                  <div
+                    className="h-full bg-white/80 transition-all"
+                    style={{
+                      width: `${Math.max(
+                        0,
+                        Math.min(
+                          100,
+                          ((timeLeft ?? 0) * 100) /
+                            Math.max(
+                              1,
+                              endTsRef.current
+                                ? Math.ceil(
+                                    (endTsRef.current - Date.now()) / 1000
+                                  ) + (timeLeft ?? 0)
+                                : timeLeft ?? 0
+                            )
+                        )
+                      )}%`,
+                    }}
+                  />
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        </main>
       )}
+
+      {/* Bottom helper bar */}
+      <footer className="fixed bottom-0 inset-x-0 z-20 pointer-events-none">
+        <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between text-[11px] text-white/70">
+          <div className="pointer-events-auto">
+            {joined ? (
+              <span>Inactive auto-leave in {INACTIVITY_SECONDS / 60} min</span>
+            ) : (
+              <span>
+                Credit | Panitia TE & JFT
+              </span>
+            )}
+          </div>
+          <div className="hidden sm:block pointer-events-auto opacity-80">
+            Var For ITX 
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
