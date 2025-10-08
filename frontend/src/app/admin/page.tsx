@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 
 type Player = { id: string; name: string };
-type Room = { id: string; players: Record<string, Player>; host?: string };
+type Room = { id: string; players: Record<string, Player>; host?: string; allowJoins?: boolean };
 import { getSocket } from '../../lib/socket';
 
 export default function AdminPage() {
@@ -12,6 +12,7 @@ export default function AdminPage() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [message, setMessage] = useState('');
   const [firstTap, setFirstTap] = useState<{playerId:string, playerName:string} | null>(null);
+  const [allowJoins, setAllowJoins] = useState<boolean>(true);
 
   useEffect(() => {
     const socket = getSocket();
@@ -61,6 +62,7 @@ export default function AdminPage() {
       if (room && room.players) {
         const playersList = Object.values(room.players).filter(p => p.id !== room.host);
         setPlayers(playersList);
+        if (typeof room.allowJoins === 'boolean') setAllowJoins(room.allowJoins);
       }
     });
 
@@ -73,6 +75,17 @@ export default function AdminPage() {
         setPlayers([]);
         setCreatedRoom(null);
       } else {
+        const playersList = Object.values(room.players).filter(p => p.id !== room.host);
+        setPlayers(playersList);
+        if (typeof room.allowJoins === 'boolean') setAllowJoins(room.allowJoins);
+      }
+    });
+
+    socket.on('allowJoinsChanged', (data: { allowJoins: boolean; room?: Room }) => {
+      setAllowJoins(Boolean(data.allowJoins));
+      setMessage(data.allowJoins ? 'Joins are enabled' : 'Joins are disabled');
+      const room = data.room;
+      if (room && room.players) {
         const playersList = Object.values(room.players).filter(p => p.id !== room.host);
         setPlayers(playersList);
       }
@@ -124,6 +137,12 @@ export default function AdminPage() {
     socket.emit('resetRound', { roomId: createdRoom.id });
   }
 
+  function handleToggleAllowJoins() {
+    if (!createdRoom) return;
+    const socket = getSocket();
+    socket.emit('setAllowJoins', { roomId: createdRoom.id, allow: !allowJoins });
+  }
+
   function handleEnd() {
     if (!createdRoom) return;
     const socket = getSocket();
@@ -132,7 +151,7 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6">
-      <h1 className="text-2xl font-bold mb-4">Admin - Fast Tap</h1>
+      <h1 className="text-2xl font-bold mb-4">Game Control Panels</h1>
       {!createdRoom ? (
         <div className="flex flex-col gap-2 w-full max-w-md">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name (host)" className="p-2 border rounded" />
@@ -150,6 +169,9 @@ export default function AdminPage() {
           <div className="mt-2">
             <button onClick={handleReset} className="px-3 py-1 bg-yellow-500 text-black rounded">Reset Round</button>
             <button onClick={() => handleEnd()} className="ml-2 px-3 py-1 bg-red-600 text-white rounded">End Game</button>
+            <button onClick={handleToggleAllowJoins} className="ml-2 px-3 py-1 bg-gray-200 text-black rounded">
+              {allowJoins ? 'Disable Joins' : 'Enable Joins'}
+            </button>
           </div>
           <div className="mt-4">
             <h3>Players</h3>

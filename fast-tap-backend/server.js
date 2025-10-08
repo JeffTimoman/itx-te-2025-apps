@@ -266,6 +266,27 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Admin toggles allowing joins
+  socket.on('setAllowJoins', async (data) => {
+    try {
+      const { roomId, allow } = data;
+      const room = await gameManager.getRoom(roomId);
+      if (!room) return;
+      // Only host can change
+      if (room.host !== socket.id) {
+        socket.emit('setAllowJoinsError', { message: 'Only the host can change join settings' });
+        return;
+      }
+      room.allowJoins = !!allow;
+      await gameManager._setEx(`${gameManager.ROOM_PREFIX}${roomId}`, 3600, JSON.stringify(room));
+      io.to(roomId).emit('allowJoinsChanged', { allowJoins: room.allowJoins, room });
+      socket.emit('setAllowJoinsAck', { success: true });
+    } catch (e) {
+      console.error('Error setting allowJoins', e && e.message);
+      socket.emit('setAllowJoinsError', { message: 'Failed to set allowJoins' });
+    }
+  });
+
   // Admin resets the round (clear firstTap and re-enable taps)
   socket.on('resetRound', async (data) => {
     try {

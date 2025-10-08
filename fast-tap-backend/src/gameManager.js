@@ -93,6 +93,8 @@ class GameManager {
             isReady: false,
           },
         },
+        // allow players to join by default; admin/host can disable
+        allowJoins: true,
         status: "waiting", // waiting, playing, finished
         createdAt: Date.now(),
         maxPlayers: parseInt(process.env.MAX_PLAYERS_PER_ROOM) || 10,
@@ -140,6 +142,11 @@ class GameManager {
 
       // Check if game is already in progress
       // Allow joining even if a game is in progress (participants may join mid-round)
+
+      // If joins are disabled by the host, prevent new joins
+      if (room.allowJoins === false) {
+        return { success: false, message: 'Joins are temporarily disabled by the host' };
+      }
 
       // Add player to room
       room.players[playerId] = {
