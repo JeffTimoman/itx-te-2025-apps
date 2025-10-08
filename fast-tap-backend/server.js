@@ -248,6 +248,11 @@ io.on('connection', (socket) => {
           tapCount: result.tapCount,
           leaderboard: result.leaderboard
         });
+      } else {
+        // Inform the tapping client why the tap was rejected (e.g., last winner)
+        try {
+          socket.emit('tapDenied', { message: result.message, tapCount: result.tapCount, leaderboard: result.leaderboard });
+        } catch (e) {}
       }
     } catch (error) {
       console.error('Error registering tap:', error);
@@ -264,6 +269,8 @@ io.on('connection', (socket) => {
   delete room.awaitingAnswer;
   // reset status to waiting so next round can be started fresh
   room.status = 'waiting';
+  // clear lastWinner so previous winner can tap again
+  delete room.lastWinner;
   delete room.gameStartTime;
   delete room.gameDuration;
       // reset tap counts

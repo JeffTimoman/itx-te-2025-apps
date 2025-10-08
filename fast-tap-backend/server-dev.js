@@ -184,6 +184,8 @@ io.on('connection', (socket) => {
           tapCount: result.tapCount,
           leaderboard: result.leaderboard
         });
+        } else {
+          try { socket.emit('tapDenied', { message: result.message, tapCount: result.tapCount, leaderboard: result.leaderboard }); } catch (e) {}
       }
     } catch (error) {
       console.error('Error registering tap:', error);

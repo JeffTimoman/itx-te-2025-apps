@@ -233,6 +233,13 @@ export default function JoinPage() {
       setTimeLeft(null);
     });
 
+    socket.on('tapDenied', (data: { message?: string }) => {
+      // e.g., 'You cannot tap because you already tapped in the last round'
+      setToast(data?.message || 'Tap denied');
+      // ensure the client doesn't allow tapping again until reset
+      setTapDisabled(true);
+    });
+
     // Inactivity tracking
     const activityEvents = ["mousemove", "keydown", "touchstart", "click"];
     const resetInactivity = () => {

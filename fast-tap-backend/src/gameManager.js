@@ -236,6 +236,25 @@ class GameManager {
         };
       }
 
+      // Prevent the last round's winner from tapping again until an admin resets the round
+      if (room.lastWinner && room.lastWinner === playerId) {
+        const leaderboard = Object.values(room.players)
+          .sort((a, b) => b.tapCount - a.tapCount)
+          .map((player, index) => ({
+            rank: index + 1,
+            playerId: player.id,
+            playerName: player.name,
+            tapCount: player.tapCount,
+          }));
+
+        return {
+          success: false,
+          message: "You cannot tap because you already tapped in the last round",
+          tapCount: room.players[playerId] ? room.players[playerId].tapCount : 0,
+          leaderboard,
+        };
+      }
+
       // Check if player is in the room
       if (!room.players[playerId]) {
         return { success: false, message: "Player not in room" };
@@ -326,7 +345,13 @@ class GameManager {
           tapCount: player.tapCount,
         }));
 
+
       const winner = results.length > 0 ? results[0] : null;
+
+      // Record the last round winner on the room so they can be blocked until reset
+      if (winner && winner.playerId) {
+        room.lastWinner = winner.playerId;
+      }
 
       await this._setEx(roomKey, 3600, JSON.stringify(room));
 
