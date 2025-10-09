@@ -871,3 +871,90 @@ app.get('/api/admin/winners', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch winners' });
   }
 });
+
+// List available gifts (those with remaining quantity > awarded count)
+app.get('/api/admin/gifts/available', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const sql = `
+      SELECT g.id, g.name, g.description, g.quantity, g.gift_category_id,
+        COALESCE((SELECT COUNT(*) FROM gift_winners gw WHERE gw.gift_id = g.id), 0) AS awarded
+      FROM gift g
+      WHERE COALESCE((SELECT COUNT(*) FROM gift_winners gw WHERE gw.gift_id = g.id), 0) < g.quantity
+      ORDER BY g.id
+    `;
+    const result = await pgPool.query(sql);
+    res.json(result.rows.map(r => ({ id: r.id, name: r.name, description: r.description, quantity: r.quantity, awarded: Number(r.awarded), gift_category_id: r.gift_category_id })));
+  } catch (err) {
+    console.error('Error fetching available gifts', err && err.message);
+    res.status(500).json({ error: 'Failed to fetch available gifts' });
+  }
+});
+
+// Preview a random eligible registrant for a gift (does not persist)
+app.post('/api/admin/gifts/:id/random-winner', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const giftId = parseInt(req.params.id, 10);
+    if (Number.isNaN(giftId)) return res.status(400).json({ error: 'Invalid gift id' });
+
+    // choose a random registrant who is verified and has not won yet
+    const q = `SELECT id, name, gacha_code FROM registrants WHERE is_verified = $1 AND is_win = $2 AND gacha_code IS NOT NULL ORDER BY random() LIMIT 1`;
+    const r = await pgPool.query(q, ['Y', 'N']);
+    if (r.rows.length === 0) return res.status(404).json({ error: 'No eligible registrants found' });
+    return res.json(r.rows[0]);
+  } catch (err) {
+    console.error('Error selecting random winner', err && err.message);
+    res.status(500).json({ error: 'Failed to select random winner' });
+  }
+});
+
+// Save a winner transactionally: insert into gift_winners and mark registrant is_win = 'Y'
+app.post('/api/admin/gifts/:id/save-winner', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  const giftId = parseInt(req.params.id, 10);
+  const { registrant_id } = req.body || {};
+  if (Number.isNaN(giftId)) return res.status(400).json({ error: 'Invalid gift id' });
+  if (!registrant_id) return res.status(400).json({ error: 'registrant_id is required' });
+
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Ensure gift has remaining quantity
+    const giftRes = await client.query('SELECT id, quantity, (SELECT COUNT(*) FROM gift_winners gw WHERE gw.gift_id = $1) AS awarded FROM gift WHERE id = $1 FOR UPDATE', [giftId]);
+    if (giftRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Gift not found' });
+    }
+    const gift = giftRes.rows[0];
+    if (Number(gift.awarded) >= Number(gift.quantity)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Gift already fully awarded' });
+    }
+
+    // Ensure registrant exists and hasn't won
+    const regRes = await client.query('SELECT id, is_win FROM registrants WHERE id = $1 FOR UPDATE', [registrant_id]);
+    if (regRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Registrant not found' });
+    }
+    if (regRes.rows[0].is_win === 'Y') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Registrant already marked as winner' });
+    }
+
+    // Insert winner and mark registrant
+    await client.query('INSERT INTO gift_winners (registrant_id, gift_id) VALUES ($1, $2)', [registrant_id, giftId]);
+    await client.query("UPDATE registrants SET is_win = 'Y' WHERE id = $1", [registrant_id]);
+
+    await client.query('COMMIT');
+    return res.json({ success: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error saving winner', err && err.message);
+    return res.status(500).json({ error: 'Failed to save winner' });
+  } finally {
+    client.release();
+  }
+});
