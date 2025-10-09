@@ -72,6 +72,24 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Internal-only runtime config endpoint (safe — does NOT return secrets)
+app.get('/api/config', (req, res) => {
+  try {
+    const cfg = {
+      maxPlayersPerRoom: parseInt(process.env.MAX_PLAYERS_PER_ROOM, 10) || 10,
+      enableRedis: enableRedis === true,
+      redisConnected: !!(redisClient && redisClient.isOpen),
+      corsOrigin: process.env.CORS_ORIGIN || null,
+      nodeEnv: process.env.NODE_ENV || 'development',
+      port: process.env.PORT || 5000,
+      storage: gameManager && typeof gameManager.useMemory !== 'undefined' ? (gameManager.useMemory ? 'memory' : 'redis') : 'unknown'
+    };
+    res.json(cfg);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to read config' });
+  }
+});
+
 app.get('/api/rooms', async (req, res) => {
   try {
     const rooms = await gameManager.getAllRooms();
