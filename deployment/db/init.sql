@@ -1,5 +1,3 @@
--- SQL DDL for registrants table (fast-tap app)
--- Run during DB initialization or manually with psql
 
 CREATE TABLE IF NOT EXISTS registrants (
   id SERIAL PRIMARY KEY,
@@ -11,4 +9,13 @@ CREATE TABLE IF NOT EXISTS registrants (
   is_send_email CHAR(1) NOT NULL DEFAULT 'N',
   bureau TEXT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Verification codes table used by QR flows and single-use verification links
+CREATE TABLE verification_codes (
+  id SERIAL PRIMARY KEY,
+  code VARCHAR(64) NOT NULL UNIQUE,
+  registrant_id INTEGER REFERENCES registrants(id) ON DELETE CASCADE,
+  date_created TIMESTAMPTZ NOT NULL DEFAULT now(),
+  is_used CHAR(1) NOT NULL DEFAULT 'N'
 );

@@ -180,6 +180,94 @@ function generateGachaCode() {
   return out;
 }
 
+// Generate a random verification code (URL-safe)
+function generateVerificationCode(len = 32) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  let out = '';
+  for (let i = 0; i < len; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
+
+// Create a verification code for a registrant. Returns { code }
+app.post('/api/admin/registrants/:id/generate-code', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+
+    // ensure registrant exists
+    const r = await pgPool.query('SELECT id, is_verified FROM registrants WHERE id = $1', [id]);
+    if (r.rows.length === 0) return res.status(404).json({ error: 'Registrant not found' });
+
+    // generate a code and insert
+    const code = generateVerificationCode(32);
+    const insertSql = 'INSERT INTO verification_codes (code, registrant_id) VALUES ($1, $2) RETURNING code, date_created';
+    const result = await pgPool.query(insertSql, [code, id]);
+    const created = result.rows[0];
+
+    // Return a relative path that can be turned into a QR redirect on the frontend
+    return res.json({ code: created.code, verifyPath: `/registrations/verify/${created.code}` });
+  } catch (err) {
+    console.error('Error generating verification code', err && err.message);
+    res.status(500).json({ error: 'Failed to generate verification code' });
+  }
+});
+
+// Verify a code (single-use, 15-minute TTL). Expects { email } in body to set registrant email.
+app.post('/api/registrations/verify', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const { code, email } = req.body || {};
+    if (!code) return res.status(400).json({ error: 'Code required' });
+
+    // Transactional check + mark used + set registrant email + set is_verified
+    const client = await pgPool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const q = 'SELECT id, registrant_id, date_created, is_used FROM verification_codes WHERE code = $1 FOR UPDATE';
+      const qr = await client.query(q, [code]);
+      if (qr.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Code not found' });
+      }
+      const row = qr.rows[0];
+      if (row.is_used === 'Y') {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Code already used' });
+      }
+
+      const createdAt = new Date(row.date_created);
+      const ageMs = Date.now() - createdAt.getTime();
+      if (ageMs > 15 * 60 * 1000) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Code expired' });
+      }
+
+      // mark code as used
+      await client.query('UPDATE verification_codes SET is_used = $1 WHERE id = $2', ['Y', row.id]);
+
+      // set registrant email if provided and set is_verified to 'Y'
+      if (email) {
+        await client.query('UPDATE registrants SET email = $1, is_verified = $2 WHERE id = $3', [email, 'Y', row.registrant_id]);
+      } else {
+        await client.query('UPDATE registrants SET is_verified = $1 WHERE id = $2', ['Y', row.registrant_id]);
+      }
+
+      await client.query('COMMIT');
+      res.json({ success: true, registrant_id: row.registrant_id });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('Error verifying code', err && err.message);
+    res.status(500).json({ error: 'Failed to verify code' });
+  }
+});
+
 app.post('/api/admin/registrants', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   try {
