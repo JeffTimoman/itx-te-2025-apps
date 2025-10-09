@@ -3,7 +3,7 @@
 const { Pool } = require('pg');
 let pool = null;
 
-function initPgPool() {
+async function initPgPool() {
   if (pool) return pool;
   const pgUrl = process.env.POSTGRES_URL || null;
   if (pgUrl) {
@@ -18,21 +18,19 @@ function initPgPool() {
     pool = new Pool({ connectionString: conn });
   }
 
-  // test connection
-  (async () => {
-    try {
-      const client = await pool.connect();
-      await client.query('SELECT 1');
-      client.release();
-      console.log('Postgres pool connected');
-    } catch (err) {
-      console.warn('Postgres pool test failed:', err && err.message);
-      try { await pool.end(); } catch (e) {}
-      pool = null;
-    }
-  })();
-
-  return pool;
+  // test connection (await so callers can know result)
+  try {
+    const client = await pool.connect();
+    await client.query('SELECT 1');
+    client.release();
+    console.log('Postgres pool connected');
+    return pool;
+  } catch (err) {
+    console.warn('Postgres pool test failed:', err && err.message);
+    try { await pool.end(); } catch (e) {}
+    pool = null;
+    return null;
+  }
 }
 
 function getPgPool() {

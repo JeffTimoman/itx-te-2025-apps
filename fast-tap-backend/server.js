@@ -12,8 +12,17 @@ const server = http.createServer(app);
 const { initPgPool, getPgPool } = require('./src/config/postgres');
 let pgPool = null;
 try {
-  initPgPool();
-  pgPool = getPgPool();
+  // initialize pool and wait for test connection to complete
+  (async () => {
+    try {
+      const p = await initPgPool();
+      pgPool = p || null;
+      if (!pgPool) console.warn('Postgres not available (pool test failed)');
+    } catch (e) {
+      console.warn('Postgres init error (async):', e && e.message);
+      pgPool = null;
+    }
+  })();
 } catch (err) {
   console.warn('Postgres init error:', err && err.message);
   pgPool = null;
