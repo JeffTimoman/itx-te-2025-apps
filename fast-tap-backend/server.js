@@ -188,6 +188,16 @@ function generateVerificationCode(len = 32) {
   return out;
 }
 
+// Build gacha code when registrant is verified.
+// Format: <BUREAU_FIRST4><YEAR>-<10_DIGIT_RANDOM>
+function buildGachaCode(bureau) {
+  const year = new Date().getFullYear();
+  const normalized = String(bureau || '').replace(/\s+/g, '').toUpperCase();
+  const prefix = (normalized.substring(0,4) || 'GENR').padEnd(4, 'X');
+  const rand = Math.floor(Math.random() * 1e10).toString().padStart(10, '0');
+  return `${prefix}${year}-${rand}`;
+}
+
 // Create a verification code for a registrant. Returns { code }
 app.post('/api/admin/registrants/:id/generate-code', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
@@ -298,10 +308,37 @@ app.post('/api/registrations/verify', async (req, res) => {
       await client.query('UPDATE verification_codes SET is_used = $1 WHERE id = $2', ['Y', row.id]);
 
       // set registrant email if provided and set is_verified to 'Y'
-      if (email) {
-        await client.query('UPDATE registrants SET email = $1, is_verified = $2 WHERE id = $3', [email, 'Y', targetRegistrantId]);
+      // Also generate a gacha_code on verification if not already present.
+      // Try to generate a unique gacha_code up to a few attempts.
+      const rinfo = await client.query('SELECT id, bureau, gacha_code FROM registrants WHERE id = $1 FOR UPDATE', [targetRegistrantId]);
+      const registrant = rinfo.rows[0];
+      let attempts = 0;
+      if (!registrant.gacha_code) {
+        while (attempts < 5) {
+          const code = buildGachaCode(registrant.bureau || 'GENR');
+          try {
+            await client.query('UPDATE registrants SET gacha_code = $1, email = COALESCE($2, email), is_verified = $3 WHERE id = $4', [code, email, 'Y', targetRegistrantId]);
+            break;
+          } catch (err) {
+            // Unique constraint conflict, retry
+            if (err && err.code === '23505') {
+              attempts++;
+              continue;
+            }
+            throw err;
+          }
+        }
+        if (attempts >= 5) {
+          await client.query('ROLLBACK');
+          return res.status(500).json({ error: 'Failed to generate unique gacha_code' });
+        }
       } else {
-        await client.query('UPDATE registrants SET is_verified = $1 WHERE id = $2', ['Y', targetRegistrantId]);
+        // already has code; just update email and verified flag
+        if (email) {
+          await client.query('UPDATE registrants SET email = $1, is_verified = $2 WHERE id = $3', [email, 'Y', targetRegistrantId]);
+        } else {
+          await client.query('UPDATE registrants SET is_verified = $1 WHERE id = $2', ['Y', targetRegistrantId]);
+        }
       }
 
       await client.query('COMMIT');

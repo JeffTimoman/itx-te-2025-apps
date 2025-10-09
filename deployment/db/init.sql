@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS registrants (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
-  gacha_code CHAR(12) UNIQUE,
+  gacha_code VARCHAR(32) UNIQUE,
   email TEXT NULL,
   is_win CHAR(1) NOT NULL DEFAULT 'N',
   is_verified CHAR(1) NOT NULL DEFAULT 'N',
