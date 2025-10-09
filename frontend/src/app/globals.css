@@ -24,3 +24,24 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Hide scrollbars globally but keep content scrollable
+   - WebKit browsers: hide via ::-webkit-scrollbar
+   - Firefox: use scrollbar-width: none
+   - IE/Edge legacy: -ms-overflow-style: none
+*/
+html, body, #__next {
+  height: 100%;
+}
+
+/* For modern browsers (WebKit) */
+*::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+}
+
+/* For Firefox */
+* {
+  scrollbar-width: none; /* hide scrollbar */
+  -ms-overflow-style: none; /* IE 10+ */
+}
