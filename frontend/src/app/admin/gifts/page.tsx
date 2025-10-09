@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-import api, { Gift } from '../../../../lib/api/gifts';
+import api, { Gift } from '../../../lib/api/gifts';
 
 export default function GiftsAdmin() {
   const [gifts, setGifts] = useState<Gift[]>([]);
