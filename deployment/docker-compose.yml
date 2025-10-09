@@ -13,10 +13,29 @@ services:
         limits:
           cpus: '0.3'
           memory: 512M
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=ftuser
+      - POSTGRES_PASSWORD=ftpassword
+      - POSTGRES_DB=fasttap
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../deployment/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 1024M
   backend:
     build:
       context: ..
       dockerfile: deployment/Dockerfile.backend
+    env_file:
+      - ../fast-tap-backend/.env
     environment:
       - PORT=5000
       - ENABLE_REDIS=true
@@ -28,6 +47,7 @@ services:
       - "5000:5000"
     depends_on:
       - redis
+      - postgres
     restart: unless-stopped
     deploy:
       resources:
@@ -54,3 +74,4 @@ services:
 
 volumes:
   redis-data:
+  postgres-data:

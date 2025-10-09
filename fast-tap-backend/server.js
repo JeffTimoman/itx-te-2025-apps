@@ -8,6 +8,17 @@ require('dotenv').config();
 const app = express();
 const server = http.createServer(app);
 
+// Postgres setup moved to config module (reads POSTGRES_URL or individual POSTGRES_* env vars)
+const { initPgPool, getPgPool } = require('./src/config/postgres');
+let pgPool = null;
+try {
+  initPgPool();
+  pgPool = getPgPool();
+} catch (err) {
+  console.warn('Postgres init error:', err && err.message);
+  pgPool = null;
+}
+
 // Redis Client Setup (only enabled when ENABLE_REDIS=true)
 let redisClient = null;
 const enableRedis = (process.env.ENABLE_REDIS || 'false').toLowerCase() === 'true';
@@ -96,6 +107,88 @@ app.get('/api/rooms', async (req, res) => {
     res.json(rooms);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch rooms' });
+  }
+});
+
+// Registrants admin endpoints
+// Note: these endpoints do not implement authentication. Run in a trusted network or add auth.
+app.get('/admin/registrants', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const result = await pgPool.query('SELECT id, name, gacha_code, email, is_win, is_verified, is_send_email, bureau, created_at FROM registrants ORDER BY id DESC LIMIT 1000');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching registrants', err && err.message);
+    res.status(500).json({ error: 'Failed to fetch registrants' });
+  }
+});
+
+// Helper to generate gacha code (alphanumeric, 12 chars)
+function generateGachaCode() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let out = '';
+  for (let i = 0; i < 12; i++) {
+    out += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return out;
+}
+
+app.post('/admin/registrants', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const { name, email = null, bureau = null } = req.body || {};
+    if (!name || String(name).trim().length === 0) return res.status(400).json({ error: 'Name required' });
+
+    // generate unique gacha_code (retry on conflict up to N attempts)
+    let code = generateGachaCode();
+    let attempts = 0;
+    while (attempts < 5) {
+      try {
+        const insertSql = `INSERT INTO registrants (name, gacha_code, email, bureau) VALUES ($1,$2,$3,$4) RETURNING id, name, gacha_code, email, is_win, is_verified, is_send_email, bureau, created_at`;
+        const result = await pgPool.query(insertSql, [String(name).trim(), code, email, bureau]);
+        return res.json(result.rows[0]);
+      } catch (e) {
+        // Conflict on unique gacha_code
+        if (e && e.code === '23505') {
+          code = generateGachaCode();
+          attempts++;
+          continue;
+        }
+        throw e;
+      }
+    }
+    return res.status(500).json({ error: 'Failed to generate unique code' });
+  } catch (err) {
+    console.error('Error creating registrant', err && err.message);
+    res.status(500).json({ error: 'Failed to create registrant' });
+  }
+});
+
+app.patch('/admin/registrants/:id', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+    const allowed = ['name', 'email', 'is_win', 'is_verified', 'is_send_email', 'bureau'];
+    const updates = [];
+    const values = [];
+    let idx = 1;
+    for (const k of allowed) {
+      if (Object.prototype.hasOwnProperty.call(req.body, k)) {
+        updates.push(`${k} = $${idx}`);
+        values.push(req.body[k]);
+        idx++;
+      }
+    }
+    if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
+    values.push(id);
+    const sql = `UPDATE registrants SET ${updates.join(', ')} WHERE id = $${idx} RETURNING id, name, gacha_code, email, is_win, is_verified, is_send_email, bureau, created_at`;
+    const result = await pgPool.query(sql, values);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Registrant not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating registrant', err && err.message);
+    res.status(500).json({ error: 'Failed to update registrant' });
   }
 });
 
