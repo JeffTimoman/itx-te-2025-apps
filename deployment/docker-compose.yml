@@ -11,8 +11,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 256M
+          cpus: '0.3'
+          memory: 512M
   backend:
     build:
       context: ..
@@ -21,7 +21,7 @@ services:
       - PORT=5000
       - ENABLE_REDIS=true
       - REDIS_URL=redis://redis:6379
-      - CORS_ORIGIN=http://localhost
+      - CORS_ORIGIN=https://te-itx-2025.site
     ports:
       - "5000:5000"
     depends_on:
@@ -30,8 +30,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
-          memory: 700M
+          cpus: '1.2'
+          memory: 3072M
   frontend:
     build:
       context: ..
@@ -45,7 +45,7 @@ services:
       resources:
         limits:
           cpus: '0.5'
-          memory: 500M
+          memory: 1536M
 
 volumes:
   redis-data:

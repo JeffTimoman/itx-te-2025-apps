@@ -11,12 +11,12 @@ Deployment options
 - Single-host Docker-compose (recommended for quick deploy on small VM)
 - Kubernetes manifests (for clusters)
 
-Resource guidance for a 2 CPU / 2 GB RAM Ubuntu VM
-- We'll allocate small limits so all three services can run:
-  - redis: 256Mi, 0.5 CPU
-  - backend: 700Mi, 1 CPU
-  - frontend: 500Mi, 0.5 CPU
-  - nginx: 300Mi, 0.5 CPU (if used separately)
+Resource guidance for a 2 vCPU / 8 GB RAM Ubuntu VM
+We tuned the manifests and compose file for a 2 vCPU / 8 GB host. Suggested resource reservations:
+- redis: 512Mi, 0.3 CPU
+- backend: 4Gi, 1.5 CPU
+- frontend: 1.5Gi, 0.8 CPU
+- nginx: 512Mi, 0.5 CPU
 
 Files added
 - Dockerfile.backend - build/run backend
@@ -27,7 +27,7 @@ Files added
 - k8s/* - Kubernetes manifests for backend, frontend, redis, nginx
 - README.md - this guide
 
-Quick Docker-compose deploy (Ubuntu)
+Quick Docker-compose deploy (Ubuntu) — suited for a single VM
 1. Install Docker & Docker Compose
    sudo apt update; sudo apt install -y docker.io docker-compose
    sudo systemctl enable --now docker
@@ -47,6 +47,14 @@ Quick Docker-compose deploy (Ubuntu)
 Notes about Socket.IO (Nginx)
 - We configure nginx to proxy websocket upgrades for /socket.io/.
 - If you run nginx outside docker, update backend hostname in nginx config.
+
+DNS & TLS
+- This repository expects your public DNS to point to the VM. We use te-itx-2025.site in configs.
+- For production HTTPS on Kubernetes, create a TLS secret named `te-itx-2025-tls` containing `tls.crt` and `tls.key` and apply it before deploying nginx. Example:
+
+   kubectl create secret tls te-itx-2025-tls --key /path/to/privkey.pem --cert /path/to/fullchain.pem
+
+For the docker-compose setup you can provision certificates with certbot on the host and mount them into the nginx container or run nginx on the host.
 
 Kubernetes deploy (outline)
 1. Build and push images to your registry (replace your-registry/... in manifests)
@@ -71,5 +79,5 @@ Security & env
 
 If you want I can:
 - Add a small systemd unit to run docker-compose on boot.
-- Create a simple LetsEncrypt/Certbot setup for HTTPS in the nginx manifest.
-- Adjust resource limits further after a smoke test on your VM.
+- Add a certbot + nginx example to automatically provision LetsEncrypt certificates.
+- Run a smoke test on your VM (you can grant me access or paste logs) and further tune memory.
