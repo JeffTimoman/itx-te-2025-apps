@@ -39,8 +39,8 @@ Quick Docker-compose deploy (Ubuntu) — suited for a single VM
 
 3. Verify
    docker-compose ps
-   # Frontend by default is mapped to host port 8080 (container 80) to avoid conflicts; backend on 5000, redis on 6379
-   # Open http://<VM_IP>:8080 to view the frontend when using docker-compose
+   # Frontend is mapped to host port 80 (container 80). If host nginx is running stop it before starting the compose stack.
+   # Open http://<VM_IP> to view the frontend when using docker-compose
 
 4. Logs
    docker-compose logs -f backend
