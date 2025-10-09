@@ -473,7 +473,7 @@ export default function JoinPage() {
                     id="name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g., U081591 - Budi Budi"
+                    placeholder="e.g., U081591 - Jeff"
                     className={`w-full p-3 rounded-xl bg-white/10 border ${
                       nameValid ? "border-white/20" : "border-red-400/40"
                     } outline-none focus:ring-2 focus:ring-indigo-400/60`}
@@ -606,7 +606,7 @@ export default function JoinPage() {
               <span>Inactive auto-leave in {INACTIVITY_SECONDS / 60} min</span>
             ) : (
               <span>
-                Credit | Panitia TE & JFT
+                Panitia TE ITX 2025
               </span>
             )}
           </div>
