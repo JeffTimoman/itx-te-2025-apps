@@ -11,8 +11,8 @@ export default function GeneratePage() {
     setLoading(true);
     setError(null);
     try {
-      const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_BASE || '');
-      const resp = await fetch(`${BACKEND}/api/registrations/generate`, { method: 'POST' });
+  const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_BASE || '');
+  const resp = await fetch(`${BACKEND}/api/registrations/generate`, { method: 'POST' });
       if (!resp.ok) {
         const txt = await resp.text();
         setError(`Failed: ${resp.status} ${txt}`);

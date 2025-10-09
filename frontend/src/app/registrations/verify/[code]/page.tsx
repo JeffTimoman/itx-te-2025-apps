@@ -18,7 +18,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
     // fetch unverified registrants
     (async () => {
       try {
-        const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_BASE || 'http://localhost:5000');
+        const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_BASE || '');
         const resp = await fetch(`${BACKEND}/api/registrants/unverified`);
         if (resp.ok) {
           const data = await resp.json();
