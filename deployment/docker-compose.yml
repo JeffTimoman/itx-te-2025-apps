@@ -43,11 +43,6 @@ services:
       - MAX_PLAYERS_PER_ROOM=500
       - CORS_ORIGIN=https://te-itx-2025.site
       - GAME_DURATION=3000000
-      - POSTGRES_USER=ftuser
-      - POSTGRES_PASSWORD=ftpassword
-      - POSTGRES_DB=fasttap
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
     ports:
       - "5000:5000"
     depends_on:

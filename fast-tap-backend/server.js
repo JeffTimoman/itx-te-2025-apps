@@ -11,22 +11,60 @@ const server = http.createServer(app);
 // Postgres setup moved to config module (reads POSTGRES_URL or individual POSTGRES_* env vars)
 const { initPgPool, getPgPool } = require('./src/config/postgres');
 let pgPool = null;
-try {
-  // initialize pool and wait for test connection to complete
-  (async () => {
+
+// Try to initialize Postgres pool with retries. If Postgres is not yet ready
+// at container startup, this will keep attempting so the backend can recover
+// without requiring a container restart.
+async function tryInitPgPool(retries = 10, delayMs = 2000) {
+  for (let i = 0; i < retries; i++) {
     try {
       const p = await initPgPool();
-      pgPool = p || null;
-      if (!pgPool) console.warn('Postgres not available (pool test failed)');
+      if (p) {
+        pgPool = p;
+        console.log('Postgres pool initialized');
+        return true;
+      }
+      console.warn(`Postgres pool test failed (attempt ${i + 1}/${retries})`);
     } catch (e) {
-      console.warn('Postgres init error (async):', e && e.message);
-      pgPool = null;
+      console.warn('Postgres init error (attempt):', e && e.message);
     }
-  })();
-} catch (err) {
-  console.warn('Postgres init error:', err && err.message);
-  pgPool = null;
+    // wait before next attempt
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  return false;
 }
+
+// Kick off initial attempts in the background. If it fails after the
+// configured retries, keep trying every 30s until successful.
+(async () => {
+  try {
+    const ok = await tryInitPgPool(10, 2000);
+    if (!ok) {
+      console.warn('Initial Postgres init attempts failed; will retry in background every 30s');
+      const interval = setInterval(async () => {
+        if (!pgPool) {
+          try {
+            const p = await initPgPool();
+            if (p) {
+              pgPool = p;
+              console.log('Postgres pool initialized on background retry');
+              clearInterval(interval);
+            } else {
+              console.warn('Background retry: Postgres still not available');
+            }
+          } catch (e) {
+            console.warn('Background retry error:', e && e.message);
+          }
+        } else {
+          clearInterval(interval);
+        }
+      }, 30000);
+    }
+  } catch (err) {
+    console.warn('Postgres init failed (outer):', err && err.message);
+    pgPool = null;
+  }
+})();
 
 // Redis Client Setup (only enabled when ENABLE_REDIS=true)
 let redisClient = null;
