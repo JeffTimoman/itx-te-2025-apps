@@ -216,7 +216,13 @@ app.patch('/api/admin/registrants/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
-    const allowed = ['name', 'email', 'is_win', 'is_verified', 'is_send_email', 'bureau'];
+    // Admin is not allowed to change is_win or is_verified via this endpoint.
+    // These fields are managed by the raffle/winner workflow and must not
+    // be updated manually through the admin UI.
+    if (Object.prototype.hasOwnProperty.call(req.body, 'is_win') || Object.prototype.hasOwnProperty.call(req.body, 'is_verified')) {
+      return res.status(403).json({ error: 'Updating is_win or is_verified is not allowed' });
+    }
+    const allowed = ['name', 'email', 'is_send_email', 'bureau'];
     const updates = [];
     const values = [];
     let idx = 1;

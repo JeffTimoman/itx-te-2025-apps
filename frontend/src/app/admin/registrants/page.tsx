@@ -47,23 +47,7 @@ export default function RegistrantsAdminPage() {
     }
   }
 
-  async function toggleVerified(id: number, current: string | undefined) {
-    try {
-      const updated = await api.updateRegistrant(id, { is_verified: current === 'Y' ? 'N' : 'Y' });
-      setRegistrants((r) => r.map(x => x.id === id ? updated : x));
-    } catch (err) {
-      setError(toMessage(err));
-    }
-  }
-
-  async function toggleWin(id: number, current: string | undefined) {
-    try {
-      const updated = await api.updateRegistrant(id, { is_win: current === 'Y' ? 'N' : 'Y' });
-      setRegistrants((r) => r.map(x => x.id === id ? updated : x));
-    } catch (err) {
-      setError(toMessage(err));
-    }
-  }
+  // is_verified and is_win are read-only in the admin UI; they cannot be toggled manually.
 
   return (
     <div className="max-w-4xl mx-auto p-6">
@@ -104,10 +88,10 @@ export default function RegistrantsAdminPage() {
                 <td className="p-2">{r.email}</td>
                 <td className="p-2">{r.bureau}</td>
                 <td className="p-2">
-                  <button onClick={() => toggleVerified(r.id, r.is_verified)} className="px-2 py-1 bg-yellow-400 rounded">{r.is_verified === 'Y' ? 'Yes' : 'No'}</button>
+                  <span className={`inline-block px-2 py-1 rounded ${r.is_verified === 'Y' ? 'bg-green-200 text-green-800' : 'bg-gray-200 text-gray-700'}`}>{r.is_verified === 'Y' ? 'Verified' : 'Unverified'}</span>
                 </td>
                 <td className="p-2">
-                  <button onClick={() => toggleWin(r.id, r.is_win)} className="px-2 py-1 bg-emerald-400 rounded">{r.is_win === 'Y' ? 'Yes' : 'No'}</button>
+                  <span className={`inline-block px-2 py-1 rounded ${r.is_win === 'Y' ? 'bg-amber-200 text-amber-800' : 'bg-gray-200 text-gray-700'}`}>{r.is_win === 'Y' ? 'Winner' : '—'}</span>
                 </td>
                 <td className="p-2">{new Date(r.created_at || '').toLocaleString()}</td>
               </tr>
