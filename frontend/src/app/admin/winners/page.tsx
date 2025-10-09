@@ -2,7 +2,8 @@
 
 import React, { useEffect, useState } from 'react';
 
-type Row = { gift_id: number; gift_name: string; winners: string | null };
+type Winner = { name: string; gacha_code?: string | null };
+type Row = { gift_id: number; gift_name: string; category_name?: string | null; winners: Winner[] };
 
 export default function WinnersPage() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -42,17 +43,19 @@ export default function WinnersPage() {
       <table className="w-full table-auto border-collapse">
         <thead>
           <tr className="text-left">
-            <th className="p-2">Gift ID</th>
+            <th className="p-2">No</th>
             <th className="p-2">Gift</th>
+            <th className="p-2">Category</th>
             <th className="p-2">Winners</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map(r => (
+          {rows.map((r, idx) => (
             <tr key={r.gift_id} className="border-t">
-              <td className="p-2">{r.gift_id}</td>
+              <td className="p-2">{idx + 1}</td>
               <td className="p-2">{r.gift_name}</td>
-              <td className="p-2 font-mono break-words">{r.winners || '—'}</td>
+              <td className="p-2">{r.category_name || ''}</td>
+              <td className="p-2 font-mono break-words">{(r.winners || []).map(w => `${w.name} | ${w.gacha_code || ''}`).join(', ') || '—'}</td>
             </tr>
           ))}
         </tbody>

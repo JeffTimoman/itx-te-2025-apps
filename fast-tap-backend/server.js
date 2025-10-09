@@ -848,16 +848,24 @@ app.get('/api/admin/winners', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   try {
     const sql = `
-      SELECT g.id AS gift_id, g.name AS gift_name,
-        string_agg(r.name || ' (' || COALESCE(r.gacha_code, '') || ')', ', ' ORDER BY gw.date_awarded) AS winners
+      SELECT g.id AS gift_id,
+             g.name AS gift_name,
+             gc.name AS category_name,
+             json_agg(json_build_object('name', r.name, 'gacha_code', r.gacha_code) ORDER BY gw.date_awarded) AS winners
       FROM gift_winners gw
       JOIN gift g ON gw.gift_id = g.id
+      LEFT JOIN gift_categories gc ON g.gift_category_id = gc.id
       JOIN registrants r ON gw.registrant_id = r.id
-      GROUP BY g.id, g.name
+      GROUP BY g.id, g.name, gc.name
       ORDER BY g.id
     `;
     const result = await pgPool.query(sql);
-    res.json(result.rows.map(r => ({ gift_id: r.gift_id, gift_name: r.gift_name, winners: r.winners })));
+    res.json(result.rows.map(row => ({
+      gift_id: row.gift_id,
+      gift_name: row.gift_name,
+      category_name: row.category_name,
+      winners: row.winners || []
+    })));
   } catch (err) {
     console.error('Error fetching winners', err && err.message);
     res.status(500).json({ error: 'Failed to fetch winners' });
