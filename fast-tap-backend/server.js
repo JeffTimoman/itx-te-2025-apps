@@ -361,25 +361,17 @@ app.post('/api/admin/registrants', async (req, res) => {
     const { name, email = null, bureau = null } = req.body || {};
     if (!name || String(name).trim().length === 0) return res.status(400).json({ error: 'Name required' });
 
-    // generate unique gacha_code (retry on conflict up to N attempts)
-    let code = generateGachaCode();
-    let attempts = 0;
-    while (attempts < 5) {
-      try {
-        const insertSql = `INSERT INTO registrants (name, gacha_code, email, bureau) VALUES ($1,$2,$3,$4) RETURNING id, name, gacha_code, email, is_win, is_verified, is_send_email, bureau, created_at`;
-        const result = await pgPool.query(insertSql, [String(name).trim(), code, email, bureau]);
-        return res.json(result.rows[0]);
-      } catch (e) {
-        // Conflict on unique gacha_code
-        if (e && e.code === '23505') {
-          code = generateGachaCode();
-          attempts++;
-          continue;
-        }
-        throw e;
-      }
-    }
-    return res.status(500).json({ error: 'Failed to generate unique code' });
+    // Insert registrant without a gacha_code. The gacha_code will be generated
+    // later during verification to ensure codes are only created after a
+    // successful verification.
+    const insertSql = `
+      INSERT INTO registrants (name, gacha_code, email, bureau)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, name, gacha_code, email, is_win, is_verified, is_send_email, bureau, created_at
+    `;
+    const vals = [String(name).trim(), null, email, bureau];
+    const result = await pgPool.query(insertSql, vals);
+    return res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Error creating registrant', err && err.message);
     res.status(500).json({ error: 'Failed to create registrant' });
