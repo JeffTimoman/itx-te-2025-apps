@@ -10,19 +10,10 @@ import React, {
 import { motion, AnimatePresence } from "framer-motion";
 
 /**
- * GachaPage — ultra‑festive, fullscreen‑ready gift awarding
+ * GachaPage — code-only reveal with long glitch
  *
- * 🔧 Add these packages (once):
+ * 🔧 Packages:
  *   npm i framer-motion canvas-confetti
- *
- * UX highlights
- * - Neon, arcade‑style look totally distinct from admin pages
- * - Fullscreen toggle for on‑stage reveals (native Fullscreen API)
- * - Two reveal modes:
- *     1) First draw → spectacular: drum roll + BIG confetti + code "decrypt"
- *     2) Refresh draw → subtle: quick shuffle, light confetti
- * - Code format PPPP2025-XXXXXXXXXX → show only PPPP2025 first, then animate XXXXXXXXXX
- * - Winner may reject → "Refresh Winner" yields milder animation
  */
 
 type GiftAvail = {
@@ -35,6 +26,12 @@ type GiftAvail = {
 };
 
 type PreviewWinner = { id: number; name: string; gacha_code?: string | null };
+
+const GLITCH_MS_FIRST = 15000; // ~15s for "Get Winner"
+const GLITCH_MS_REFRESH = 2500; // short for "Refresh Winner"
+const DECODE_MS_FIRST = 1800; // decode time after long glitch
+const DECODE_MS_REFRESH = 900;
+const SUFFIX_LEN = 10;
 
 export default function GachaPage() {
   // data
@@ -49,9 +46,11 @@ export default function GachaPage() {
     "idle" | "drawing" | "reveal" | "refresh-reveal"
   >("idle");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [revealDone, setRevealDone] = useState(false); // controls when to re-show settings
 
   // code animation
   const [suffixDisplay, setSuffixDisplay] = useState<string>("**********");
+  const [isGlitching, setIsGlitching] = useState(false);
   const scrambleTimer = useRef<number | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
 
@@ -61,7 +60,7 @@ export default function GachaPage() {
     [gifts, selectedGift]
   );
 
-  // load gifts
+  // helpers
   const toMsg = (e: unknown) => {
     if (typeof e === "string") return e;
     if (!e || typeof e !== "object") return String(e);
@@ -115,10 +114,13 @@ export default function GachaPage() {
   function splitCode(code?: string | null): { prefix: string; suffix: string } {
     if (!code) return { prefix: "", suffix: "" };
     const [pre, suf] = code.split("-");
-    return { prefix: pre || "", suffix: suf || "" };
+    return {
+      prefix: pre || "",
+      suffix: (suf || "").padEnd(SUFFIX_LEN, "X").slice(0, SUFFIX_LEN),
+    };
   }
 
-  // confetti (loaded lazily to avoid SSR hiccups)
+  // confetti (lazy)
   async function burstConfetti(power: "big" | "small") {
     const confetti = (await import("canvas-confetti")).default;
     const base = {
@@ -146,19 +148,51 @@ export default function GachaPage() {
     });
   }
 
-  // code scramble animation → reveals true suffix
+  // cleanup
+  useEffect(() => {
+    return () => {
+      if (scrambleTimer.current) window.clearTimeout(scrambleTimer.current);
+    };
+  }, []);
+
+  // code scramble → long glitch then decode
   function animateSuffixReveal(trueSuffix: string, spectacular: boolean) {
-    if (scrambleTimer.current) window.clearInterval(scrambleTimer.current);
-    const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // friendly chars
-    const target = trueSuffix.padEnd(10, "X").slice(0, 10);
-    const duration = spectacular ? 3500 : 1400; // ms
+    if (scrambleTimer.current) window.clearTimeout(scrambleTimer.current);
+
+    const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    const target = (trueSuffix || "")
+      .padEnd(SUFFIX_LEN, "X")
+      .slice(0, SUFFIX_LEN);
+
+    const GLITCH_MS = spectacular ? GLITCH_MS_FIRST : GLITCH_MS_REFRESH;
+    const DECODE_MS = spectacular ? DECODE_MS_FIRST : DECODE_MS_REFRESH;
+
+    setIsGlitching(true);
+    setRevealDone(false);
+
     const start = performance.now();
 
-    const tick = () => {
+    const loop = () => {
       const now = performance.now();
-      const t = Math.min(1, (now - start) / duration);
+      const elapsed = now - start;
+
+      // Phase 1: long glitch (fully random)
+      if (elapsed < GLITCH_MS) {
+        const scrambled = Array.from(
+          { length: SUFFIX_LEN },
+          () => alphabet[Math.floor(Math.random() * alphabet.length)]
+        ).join("");
+        setSuffixDisplay(scrambled);
+        scrambleTimer.current = window.setTimeout(loop, spectacular ? 33 : 28);
+        return;
+      }
+
+      // Phase 2: decode to true value (left-to-right lock-in)
+      const decodeElapsed = elapsed - GLITCH_MS;
+      const t = Math.min(1, decodeElapsed / DECODE_MS);
       const revealCount = Math.floor(t * target.length);
-      const scrambled = target
+
+      const decoded = target
         .split("")
         .map((ch, i) =>
           i < revealCount
@@ -166,14 +200,19 @@ export default function GachaPage() {
             : alphabet[Math.floor(Math.random() * alphabet.length)]
         )
         .join("");
-      setSuffixDisplay(scrambled);
+
+      setSuffixDisplay(decoded);
+
       if (t < 1) {
-        scrambleTimer.current = window.setTimeout(tick, spectacular ? 30 : 24);
+        scrambleTimer.current = window.setTimeout(loop, spectacular ? 30 : 24);
       } else {
         setSuffixDisplay(target);
+        setIsGlitching(false);
+        setRevealDone(true);
       }
     };
-    tick();
+
+    loop();
   }
 
   async function pickRandom(spectacular: boolean) {
@@ -181,6 +220,9 @@ export default function GachaPage() {
     setError(null);
     setLoading(true);
     setStage("drawing");
+    setRevealDone(false);
+    setIsGlitching(true);
+
     try {
       const res = await fetch(
         `/api/admin/gifts/${selectedGift}/random-winner`,
@@ -195,14 +237,17 @@ export default function GachaPage() {
       setSuffixDisplay("**********");
       setStage(spectacular ? "reveal" : "refresh-reveal");
       animateSuffixReveal(suffix, spectacular);
-      // delayed confetti burst
+
+      // confetti a bit after we start (big for first, light for refresh)
       setTimeout(
         () => burstConfetti(spectacular ? "big" : "small"),
-        spectacular ? 900 : 300
+        spectacular ? 900 : 250
       );
     } catch (e) {
       setError(toMsg(e));
       setStage("idle");
+      setIsGlitching(false);
+      setRevealDone(true);
     } finally {
       setLoading(false);
     }
@@ -223,6 +268,7 @@ export default function GachaPage() {
       setPreview(null);
       alert("Winner saved");
       setStage("idle");
+      setRevealDone(true);
     } catch (e) {
       setError(toMsg(e));
     } finally {
@@ -230,18 +276,40 @@ export default function GachaPage() {
     }
   }
 
-  // visuals
   const cyberBg =
     "bg-[radial-gradient(1000px_600px_at_50%_-10%,rgba(99,102,241,0.25),transparent),radial-gradient(800px_400px_at_30%_120%,rgba(16,185,129,0.18),transparent)]";
 
-  const prefix = splitCode(preview?.gacha_code).prefix; // PPPP2025
-  const displayName = preview?.name || "";
+  const { prefix } = splitCode(preview?.gacha_code); // PPPP2025
+  const showSettings = stage === "idle" || revealDone || !preview;
 
   return (
     <div
       ref={hostRef}
       className={`min-h-screen ${cyberBg} from-slate-950 via-slate-950 to-slate-950 text-slate-100 relative overflow-hidden`}
     >
+      {/* glitch styles */}
+      <style>{`
+        @keyframes glowPulse {
+          0% { text-shadow: 0 0 14px rgba(99,102,241,0.55), 0 0 2px rgba(255,255,255,0.4); }
+          50% { text-shadow: 0 0 26px rgba(99,102,241,0.8), 0 0 6px rgba(255,255,255,0.6); }
+          100% { text-shadow: 0 0 14px rgba(99,102,241,0.55), 0 0 2px rgba(255,255,255,0.4); }
+        }
+        @keyframes glitchShift {
+          0% { transform: translate(0,0) skew(0deg); filter: hue-rotate(0deg); }
+          20% { transform: translate(0.5px,-0.6px) skew(0.1deg); }
+          40% { transform: translate(-0.6px,0.4px) skew(-0.15deg); }
+          60% { transform: translate(0.4px,0.6px) skew(0.12deg); }
+          80% { transform: translate(-0.5px,-0.4px) skew(-0.1deg); }
+          100% { transform: translate(0,0) skew(0deg); filter: hue-rotate(0deg); }
+        }
+        .glitching {
+          animation: glitchShift 120ms infinite steps(2,end);
+        }
+        .glow {
+          animation: glowPulse 2.2s ease-in-out infinite;
+        }
+      `}</style>
+
       {/* Header */}
       <header className="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-white/5 border-b border-white/10">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -266,66 +334,79 @@ export default function GachaPage() {
         </div>
       </header>
 
-      {/* Main controls */}
+      {/* Main */}
       <main className="max-w-6xl mx-auto px-4 py-8 grid lg:grid-cols-[360px,1fr] gap-6 items-start">
-        <section className="rounded-2xl p-6 bg-white/5 border border-white/10 space-y-4">
-          <h2 className="text-lg font-bold">Step 1. Select a gift</h2>
-          <div>
-            <select
-              value={selectedGift ?? ""}
-              onChange={(e) =>
-                setSelectedGift(e.target.value ? Number(e.target.value) : null)
-              }
-              className="w-full p-3 rounded-xl bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+        {/* Left: Settings (hidden during reveal animation) */}
+        <AnimatePresence initial={false}>
+          {showSettings && (
+            <motion.section
+              key="settings"
+              initial={{ opacity: 0, x: -12 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -12 }}
+              className="rounded-2xl p-6 bg-white/5 border border-white/10 space-y-4"
             >
-              <option value="">— Select gift —</option>
-              {gifts.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name} (awarded {g.awarded}/{g.quantity})
-                </option>
-              ))}
-            </select>
-          </div>
+              <h2 className="text-lg font-bold">Step 1. Select a gift</h2>
+              <div>
+                <select
+                  value={selectedGift ?? ""}
+                  onChange={(e) =>
+                    setSelectedGift(
+                      e.target.value ? Number(e.target.value) : null
+                    )
+                  }
+                  className="w-full p-3 rounded-xl bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                >
+                  <option value="">— Select gift —</option>
+                  {gifts.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name} (awarded {g.awarded}/{g.quantity})
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => pickRandom(true)}
-              disabled={!selectedGift || loading}
-              className="px-3 py-2 rounded-lg bg-indigo-500/90 hover:bg-indigo-500 disabled:opacity-50 font-semibold"
-            >
-              Get Winner
-            </button>
-            <button
-              onClick={() => pickRandom(false)}
-              disabled={!selectedGift || loading}
-              className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 disabled:opacity-50"
-            >
-              Refresh Winner
-            </button>
-          </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => pickRandom(true)}
+                  disabled={!selectedGift || loading}
+                  className="px-3 py-2 rounded-lg bg-indigo-500/90 hover:bg-indigo-500 disabled:opacity-50 font-semibold"
+                >
+                  Get Winner
+                </button>
+                <button
+                  onClick={() => pickRandom(false)}
+                  disabled={!selectedGift || loading}
+                  className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 disabled:opacity-50"
+                >
+                  Refresh Winner
+                </button>
+              </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setPreview(null)}
-              disabled={!preview}
-              className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 disabled:opacity-50"
-            >
-              Clear Preview
-            </button>
-            <button
-              onClick={saveWinner}
-              disabled={!preview || loading}
-              className="px-3 py-2 rounded-lg bg-emerald-500/90 hover:bg-emerald-500 disabled:opacity-50 font-semibold"
-            >
-              Save Winner
-            </button>
-          </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setPreview(null)}
+                  disabled={!preview}
+                  className="px-3 py-2 rounded-lg bg-white/10 border border-white/20 disabled:opacity-50"
+                >
+                  Clear Preview
+                </button>
+                <button
+                  onClick={saveWinner}
+                  disabled={!preview || loading}
+                  className="px-3 py-2 rounded-lg bg-emerald-500/90 hover:bg-emerald-500 disabled:opacity-50 font-semibold"
+                >
+                  Save Winner
+                </button>
+              </div>
 
-          {error && <div className="text-sm text-rose-300">{error}</div>}
-          {loading && <div className="text-xs opacity-80">Working…</div>}
-        </section>
+              {error && <div className="text-sm text-rose-300">{error}</div>}
+              {loading && <div className="text-xs opacity-80">Working…</div>}
+            </motion.section>
+          )}
+        </AnimatePresence>
 
-        {/* Stage area */}
+        {/* Right: Stage */}
         <section className="relative rounded-2xl p-0 bg-transparent min-h-[420px]">
           {/* Neon grid backdrop */}
           <div className="absolute inset-0 -z-10 opacity-40 pointer-events-none bg-[linear-gradient(0deg,rgba(255,255,255,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.08)_1px,transparent_1px)] bg-[size:36px_36px]" />
@@ -356,7 +437,7 @@ export default function GachaPage() {
                   exit={{ opacity: 0, y: -20 }}
                   className="w-full"
                 >
-                  {/* Gift name */}
+                  {/* Gift name (context) */}
                   <motion.div
                     layout
                     className="text-sm uppercase tracking-widest text-indigo-200/80 mb-4"
@@ -364,26 +445,12 @@ export default function GachaPage() {
                     {selectedGiftObj?.name}
                   </motion.div>
 
-                  {/* Winner name */}
-                  <motion.div
-                    layout
-                    className="text-5xl md:text-7xl font-black"
-                  >
-                    <span className="[text-shadow:_0_0_20px_rgba(99,102,241,0.6)]">
-                      {displayName}
-                    </span>
-                  </motion.div>
-
-                  {/* Code prefix (always shown) */}
-                  <div className="mt-3 text-lg md:text-2xl font-mono text-emerald-200/90">
+                  {/* CODE-ONLY DISPLAY (no name) */}
+                  <div className="mt-1 text-lg md:text-2xl font-mono text-emerald-200/90">
                     {prefix || "PPPP2025"}
                     <span className="opacity-40">-</span>
-                    <span className="opacity-60">
-                      {stage === "idle" ? "**********" : null}
-                    </span>
                   </div>
 
-                  {/* Animated suffix */}
                   <div className="mt-2">
                     <motion.div
                       key={suffixDisplay}
@@ -394,7 +461,9 @@ export default function GachaPage() {
                         stiffness: 300,
                         damping: 20,
                       }}
-                      className="inline-block px-4 py-2 rounded-xl border border-white/20 bg-white/5 font-mono text-3xl md:text-5xl tracking-widest"
+                      className={`inline-block px-5 py-3 rounded-xl border border-white/20 bg-white/5 font-mono text-4xl md:text-6xl tracking-widest select-none ${
+                        isGlitching ? "glitching glow" : "glow"
+                      }`}
                     >
                       {suffixDisplay}
                     </motion.div>
@@ -402,7 +471,7 @@ export default function GachaPage() {
 
                   {/* Spectacle overlay for first reveal */}
                   <AnimatePresence>
-                    {stage === "reveal" && (
+                    {stage === "reveal" && !revealDone && (
                       <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
@@ -420,7 +489,19 @@ export default function GachaPage() {
                           }}
                           className="px-5 py-2 rounded-xl bg-indigo-500/20 border border-indigo-300/30 text-indigo-100 text-sm uppercase tracking-widest"
                         >
-                          🎉 Winner Revealed!
+                          🎉 Decrypting Winner Code…
+                        </motion.div>
+                      </motion.div>
+                    )}
+                    {stage === "refresh-reveal" && !revealDone && (
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="pointer-events-none fixed inset-0 flex items-center justify-center"
+                      >
+                        <motion.div className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs text-white/80">
+                          Updating…
                         </motion.div>
                       </motion.div>
                     )}
@@ -428,9 +509,11 @@ export default function GachaPage() {
 
                   {/* Subtext */}
                   <div className="mt-4 text-xs text-slate-300/80">
-                    If the winner declines the prize, use{" "}
-                    <span className="font-semibold">Refresh Winner</span> for a
-                    new draw (mild animation).
+                    Winner identity is hidden. Use{" "}
+                    <span className="font-semibold">Save Winner</span> to
+                    finalize, or{" "}
+                    <span className="font-semibold">Refresh Winner</span> if
+                    declined.
                   </div>
                 </motion.div>
               )}
