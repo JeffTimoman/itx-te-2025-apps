@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { getSocket } from "../../lib/socket";
+import { getSocket } from "../../../lib/socket";
 
 type Player = { id: string; name: string };
 type Room = {

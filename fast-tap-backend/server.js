@@ -841,3 +841,25 @@ app.get('/api/admin/gift-categories', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch gift categories' });
   }
 });
+
+// List winners per gift. Returns gifts that have winners with a comma-separated
+// list of winners including their gacha_code.
+app.get('/api/admin/winners', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const sql = `
+      SELECT g.id AS gift_id, g.name AS gift_name,
+        string_agg(r.name || ' (' || COALESCE(r.gacha_code, '') || ')', ', ' ORDER BY gw.date_awarded) AS winners
+      FROM gift_winners gw
+      JOIN gift g ON gw.gift_id = g.id
+      JOIN registrants r ON gw.registrant_id = r.id
+      GROUP BY g.id, g.name
+      ORDER BY g.id
+    `;
+    const result = await pgPool.query(sql);
+    res.json(result.rows.map(r => ({ gift_id: r.gift_id, gift_name: r.gift_name, winners: r.winners })));
+  } catch (err) {
+    console.error('Error fetching winners', err && err.message);
+    res.status(500).json({ error: 'Failed to fetch winners' });
+  }
+});
