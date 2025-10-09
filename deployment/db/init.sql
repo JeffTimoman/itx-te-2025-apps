@@ -25,23 +25,25 @@ CREATE TABLE prize_categories(
     name TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Insert the two initial prize categories (Grand / Great)
+INSERT INTO prize_categories (name) VALUES
+  ('Grand Gift'),
+  ('Great Gift');
 
-INSERT INTO gift_categories (name) VALUES
-('Grand Gift'),
-('Great Gift');
+-- Gifts table used by admin CRUD
+CREATE TABLE IF NOT EXISTS gift(
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NULL,
+  quantity INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
-CREATE TABLE gift(
-    id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT NULL,
-    quantity INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-)
-
-CREATE TABLE gift_winners(
-    id SERIAL PRIMARY KEY,
-    registrant_id INTEGER REFERENCES registrants(id) ON DELETE CASCADE,
-    prize_id INTEGER REFERENCES prizes(id) ON DELETE CASCADE,
-    date_awarded TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (registrant_id, prize_id)
+-- Gift winners: link registrant -> gift
+CREATE TABLE IF NOT EXISTS gift_winners(
+  id SERIAL PRIMARY KEY,
+  registrant_id INTEGER REFERENCES registrants(id) ON DELETE CASCADE,
+  gift_id INTEGER REFERENCES gift(id) ON DELETE CASCADE,
+  date_awarded TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (registrant_id, gift_id)
 );
