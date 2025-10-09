@@ -23,6 +23,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - MAX_PLAYERS_PER_ROOM=500
       - CORS_ORIGIN=https://te-itx-2025.site
+      - GAME_DURATION=3000000
     ports:
       - "5000:5000"
     depends_on:
