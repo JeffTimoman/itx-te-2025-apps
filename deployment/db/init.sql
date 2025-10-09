@@ -20,13 +20,14 @@ CREATE TABLE verification_codes (
   is_used CHAR(1) NOT NULL DEFAULT 'N'
 );
 
-CREATE TABLE prize_categories(
+-- Categories for gifts (Grand / Great)
+CREATE TABLE IF NOT EXISTS gift_categories(
     id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
--- Insert the two initial prize categories (Grand / Great)
-INSERT INTO prize_categories (name) VALUES
+-- Insert the two initial gift categories (Grand / Great)
+INSERT INTO gift_categories (name) VALUES
   ('Grand Gift'),
   ('Great Gift');
 
@@ -36,6 +37,7 @@ CREATE TABLE IF NOT EXISTS gift(
   name TEXT NOT NULL,
   description TEXT NULL,
   quantity INTEGER NOT NULL DEFAULT 0,
+  gift_category_id INTEGER REFERENCES gift_categories(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

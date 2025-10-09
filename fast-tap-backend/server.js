@@ -766,7 +766,7 @@ process.on('SIGINT', async () => {
 app.get('/api/admin/gifts', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   try {
-    const result = await pgPool.query('SELECT id, name, description, quantity, created_at FROM gift ORDER BY id DESC LIMIT 1000');
+    const result = await pgPool.query('SELECT id, name, description, quantity, gift_category_id, created_at FROM gift ORDER BY id DESC LIMIT 1000');
     res.json(result.rows);
   } catch (err) {
     console.error('Error fetching gifts', err && err.message);
@@ -777,10 +777,10 @@ app.get('/api/admin/gifts', async (req, res) => {
 app.post('/api/admin/gifts', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   try {
-    const { name, description = null, quantity = 0 } = req.body || {};
+    const { name, description = null, quantity = 0, gift_category_id = null } = req.body || {};
     if (!name || String(name).trim().length === 0) return res.status(400).json({ error: 'Name required' });
-    const insertSql = `INSERT INTO gift (name, description, quantity) VALUES ($1, $2, $3) RETURNING id, name, description, quantity, created_at`;
-    const result = await pgPool.query(insertSql, [String(name).trim(), description, Number(quantity) || 0]);
+    const insertSql = `INSERT INTO gift (name, description, quantity, gift_category_id) VALUES ($1, $2, $3, $4) RETURNING id, name, description, quantity, gift_category_id, created_at`;
+    const result = await pgPool.query(insertSql, [String(name).trim(), description, Number(quantity) || 0, gift_category_id]);
     return res.status(201).json(result.rows[0]);
   } catch (err) {
     console.error('Error creating gift', err && err.message);
@@ -793,7 +793,7 @@ app.patch('/api/admin/gifts/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
-    const allowed = ['name', 'description', 'quantity'];
+    const allowed = ['name', 'description', 'quantity', 'gift_category_id'];
     const updates = [];
     const values = [];
     let idx = 1;
@@ -806,7 +806,7 @@ app.patch('/api/admin/gifts/:id', async (req, res) => {
     }
     if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
     values.push(id);
-    const sql = `UPDATE gift SET ${updates.join(', ')} WHERE id = $${idx} RETURNING id, name, description, quantity, created_at`;
+    const sql = `UPDATE gift SET ${updates.join(', ')} WHERE id = $${idx} RETURNING id, name, description, quantity, gift_category_id, created_at`;
     const result = await pgPool.query(sql, values);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Gift not found' });
     res.json(result.rows[0]);
@@ -827,5 +827,17 @@ app.delete('/api/admin/gifts/:id', async (req, res) => {
   } catch (err) {
     console.error('Error deleting gift', err && err.message);
     res.status(500).json({ error: 'Failed to delete gift' });
+  }
+});
+
+// Gift categories list
+app.get('/api/admin/gift-categories', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const result = await pgPool.query('SELECT id, name, created_at FROM gift_categories ORDER BY id ASC');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching gift categories', err && err.message);
+    res.status(500).json({ error: 'Failed to fetch gift categories' });
   }
 });

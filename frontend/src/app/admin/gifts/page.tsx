@@ -9,6 +9,8 @@ export default function GiftsAdmin() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [quantity, setQuantity] = useState(0);
+  const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
+  const [categoryId, setCategoryId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   function toMsg(e: unknown) {
@@ -23,7 +25,8 @@ export default function GiftsAdmin() {
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.listGifts();
+      const [data, cats] = await Promise.all([api.listGifts(), api.listGiftCategories()]);
+      setCategories(cats || []);
       setGifts(data);
     } catch (e) {
       setError(toMsg(e));
@@ -39,9 +42,10 @@ export default function GiftsAdmin() {
     setError(null);
     if (!name.trim()) return setError('Name required');
     try {
-      const created = await api.createGift({ name: name.trim(), description: description || null, quantity });
+      const created = await api.createGift({ name: name.trim(), description: description || null, quantity, gift_category_id: categoryId });
       setGifts((g) => [created, ...g]);
       setName(''); setDescription(''); setQuantity(0);
+      setCategoryId(null);
     } catch (e) {
       setError(toMsg(e));
     }
@@ -63,6 +67,10 @@ export default function GiftsAdmin() {
       <form onSubmit={handleCreate} className="grid grid-cols-4 gap-2 mb-4">
         <input value={name} onChange={e => setName(e.target.value)} placeholder="Name" className="p-2 border rounded col-span-2" />
         <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Description" className="p-2 border rounded" />
+        <select value={categoryId ?? ''} onChange={e => setCategoryId(e.target.value ? Number(e.target.value) : null)} className="p-2 border rounded">
+          <option value="">-- Category --</option>
+          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
         <input type="number" value={quantity} onChange={e => setQuantity(Number(e.target.value))} placeholder="Quantity" className="p-2 border rounded" />
         <div className="col-span-4 text-right">
           <button className="px-4 py-2 bg-indigo-600 text-white rounded">Create</button>
@@ -90,6 +98,7 @@ export default function GiftsAdmin() {
                 <td className="p-2">{g.name}</td>
                 <td className="p-2">{g.description}</td>
                 <td className="p-2">{g.quantity}</td>
+                <td className="p-2">{g.gift_category_id ? (categories.find(c => c.id === g.gift_category_id)?.name || g.gift_category_id) : ''}</td>
                 <td className="p-2">{g.created_at ? new Date(g.created_at).toLocaleString() : ''}</td>
                 <td className="p-2"><button className="px-2 py-1 bg-red-500 text-white rounded" onClick={() => handleDelete(g.id)}>Delete</button></td>
               </tr>
