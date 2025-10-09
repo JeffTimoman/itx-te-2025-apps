@@ -58,7 +58,7 @@ if (enableRedis) {
 // CORS configuration
 const corsOptions = {
   origin: process.env.CORS_ORIGIN || "http://localhost:3000",
-  methods: ["GET", "POST"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   credentials: true
 };
 
@@ -112,7 +112,7 @@ app.get('/api/rooms', async (req, res) => {
 
 // Registrants admin endpoints
 // Note: these endpoints do not implement authentication. Run in a trusted network or add auth.
-app.get('/admin/registrants', async (req, res) => {
+app.get('/api/admin/registrants', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   try {
     const result = await pgPool.query('SELECT id, name, gacha_code, email, is_win, is_verified, is_send_email, bureau, created_at FROM registrants ORDER BY id DESC LIMIT 1000');
@@ -133,7 +133,7 @@ function generateGachaCode() {
   return out;
 }
 
-app.post('/admin/registrants', async (req, res) => {
+app.post('/api/admin/registrants', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   try {
     const { name, email = null, bureau = null } = req.body || {};
@@ -164,7 +164,7 @@ app.post('/admin/registrants', async (req, res) => {
   }
 });
 
-app.patch('/admin/registrants/:id', async (req, res) => {
+app.patch('/api/admin/registrants/:id', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   try {
     const id = parseInt(req.params.id, 10);

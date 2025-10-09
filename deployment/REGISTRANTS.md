@@ -43,7 +43,7 @@ Step-by-step: local Docker Compose (recommended)
 	curl http://127.0.0.1:5000/api/config
 
 	# list registrants (should be empty initially)
-	curl http://127.0.0.1:5000/admin/registrants
+	curl http://127.0.0.1:5000/api/admin/registrants
 	```
 
 5. If Postgres already had an existing data volume
@@ -73,14 +73,14 @@ Step-by-step: local Docker Compose (recommended)
 
 7. Creating a registrant via HTTP
 	```bash
-	curl -X POST http://127.0.0.1:5000/admin/registrants \
+	curl -X POST http://127.0.0.1:5000/api/admin/registrants \
 	  -H "Content-Type: application/json" \
 	  -d '{"name":"Alice","email":"alice@example.com","bureau":"Marketing"}'
 	```
 
 8. Updating a registrant
 	```bash
-	curl -X PATCH http://127.0.0.1:5000/admin/registrants/1 \
+	curl -X PATCH http://127.0.0.1:5000/api/admin/registrants/1 \
 	  -H "Content-Type: application/json" \
 	  -d '{"is_verified":"Y"}'
 	```

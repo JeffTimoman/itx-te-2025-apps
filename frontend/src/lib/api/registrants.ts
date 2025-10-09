@@ -22,11 +22,11 @@ async function fetchJson<T>(url: string, opts: RequestInit = {}): Promise<T> {
 }
 
 export async function listRegistrants(): Promise<Registrant[]> {
-  return fetchJson<Registrant[]>(`${BASE}/admin/registrants`);
+  return fetchJson<Registrant[]>(`${BASE}/api/admin/registrants`);
 }
 
 export async function createRegistrant(payload: { name: string; email?: string | null; bureau?: string | null }): Promise<Registrant> {
-  return fetchJson<Registrant>(`${BASE}/admin/registrants`, {
+  return fetchJson<Registrant>(`${BASE}/api/admin/registrants`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -34,7 +34,7 @@ export async function createRegistrant(payload: { name: string; email?: string |
 }
 
 export async function updateRegistrant(id: number, patch: Partial<Registrant>): Promise<Registrant> {
-  return fetchJson<Registrant>(`${BASE}/admin/registrants/${id}`, {
+  return fetchJson<Registrant>(`${BASE}/api/admin/registrants/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
