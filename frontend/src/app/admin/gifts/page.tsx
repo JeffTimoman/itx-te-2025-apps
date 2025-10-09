@@ -86,6 +86,7 @@ export default function GiftsAdmin() {
               <th className="p-2">ID</th>
               <th className="p-2">Name</th>
               <th className="p-2">Description</th>
+              <th className="p-2">Category</th>
               <th className="p-2">Qty</th>
               <th className="p-2">Created</th>
               <th className="p-2">Actions</th>
@@ -97,8 +98,8 @@ export default function GiftsAdmin() {
                 <td className="p-2">{g.id}</td>
                 <td className="p-2">{g.name}</td>
                 <td className="p-2">{g.description}</td>
+                <td className="p-2">{g.gift_category_id ? (categories.find(c => c.id === g.gift_category_id)?.name || String(g.gift_category_id)) : ''}</td>
                 <td className="p-2">{g.quantity}</td>
-                <td className="p-2">{g.gift_category_id ? (categories.find(c => c.id === g.gift_category_id)?.name || g.gift_category_id) : ''}</td>
                 <td className="p-2">{g.created_at ? new Date(g.created_at).toLocaleString() : ''}</td>
                 <td className="p-2"><button className="px-2 py-1 bg-red-500 text-white rounded" onClick={() => handleDelete(g.id)}>Delete</button></td>
               </tr>
