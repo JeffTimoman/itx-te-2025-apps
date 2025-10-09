@@ -6,16 +6,23 @@ FROM node:18-slim
 # Create app directory
 WORKDIR /usr/src/app
 
-# Install dependencies for production
-COPY fast-tap-backend/package*.json ./
-COPY fast-tap-backend/src ./src
-COPY fast-tap-backend/*.js ./
-COPY fast-tap-backend/.env* ./
-
+# Copy package manifests and install production dependencies
+COPY fast-tap-backend/package.json fast-tap-backend/package-lock.json* ./
 RUN npm ci --only=production || npm install --only=production
+
+# Copy source
+COPY fast-tap-backend/src ./src
+COPY fast-tap-backend/server.js ./
+
+# Copy env file if provided at build time
+# Note: Do not COPY .env files unless you intend to bake secrets into the image.
+# For deployment, mount or pass envs at runtime (docker-compose env or k8s secret).
+
+# Set NODE_ENV
+ENV NODE_ENV=production
 
 # Expose port
 EXPOSE 5000
 
-# Start the server
+# Start the server (use npm start if available, else node server.js)
 CMD ["node", "server.js"]

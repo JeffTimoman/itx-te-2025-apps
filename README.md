@@ -44,3 +44,7 @@ New-NetFirewallRule -DisplayName "FastTap Backend" -Direction Inbound -LocalPort
 Notes
 - If your phone can't connect, make sure it's on the same network and that the firewall allows the ports. Use the `/health` endpoint to verify the backend: `http://<PC_IP>:5000/health`.
 - For production or wider testing, consider running a production build of the frontend (`npm run build && npm start`) and using a process manager or reverse proxy.
+
+Production/DNS
+- This repo includes deployment configs tuned for a small VM. The example domain used in the configs is `te-itx-2025.site` — point your DNS A record to the VM's public IP before deploying.
+- For TLS on Kubernetes create a TLS secret named `te-itx-2025-tls` containing `tls.crt` and `tls.key` (see deployment/README.md for details).

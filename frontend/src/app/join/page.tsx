@@ -47,7 +47,7 @@ export default function JoinPage() {
   const isMidJoinRef = useRef<boolean>(false);
   const inactivityRef = useRef<number | null>(null);
 
-  const INACTIVITY_SECONDS = 60;
+  const INACTIVITY_SECONDS = 180;
 
   // --- Derived validations ---
   const cleanRoom = (v: string) =>
@@ -421,7 +421,7 @@ export default function JoinPage() {
                   • Press <span className="font-semibold">Enter</span> or{" "}
                   <span className="font-semibold">Space</span> to tap
                 </li>
-                <li>• Inactive players auto-leave after 1 minutes</li>
+                <li>• Inactive players auto-leave after 3 minutes</li>
                 <li>• Mid-joiners wait for the next round</li>
               </ul>
             </div>

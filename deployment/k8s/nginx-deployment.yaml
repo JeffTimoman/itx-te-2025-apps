@@ -19,16 +19,35 @@ spec:
             - name: nginx-config
               mountPath: /etc/nginx/conf.d/default.conf
               subPath: default.conf
+            - name: tls-cert
+              mountPath: /etc/ssl/certs/te-itx-2025.site.crt
+              subPath: te-itx-2025.site.crt
+            - name: tls-key
+              mountPath: /etc/ssl/private/te-itx-2025.site.key
+              subPath: te-itx-2025.site.key
           ports:
             - containerPort: 80
+            - containerPort: 443
           resources:
             limits:
               cpu: "0.5"
-              memory: "300Mi"
+              memory: "512Mi"
       volumes:
         - name: nginx-config
           configMap:
             name: nginx-config
+        - name: tls-cert
+          secret:
+            secretName: te-itx-2025-tls
+            items:
+              - key: tls.crt
+                path: te-itx-2025.site.crt
+        - name: tls-key
+          secret:
+            secretName: te-itx-2025-tls
+            items:
+              - key: tls.key
+                path: te-itx-2025.site.key
 ---
 apiVersion: v1
 kind: Service

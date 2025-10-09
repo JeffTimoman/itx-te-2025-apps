@@ -11,8 +11,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.5'
-          memory: 256M
+          cpus: '0.3'
+          memory: 512M
   backend:
     build:
       context: ..
@@ -21,7 +21,9 @@ services:
       - PORT=5000
       - ENABLE_REDIS=true
       - REDIS_URL=redis://redis:6379
-      - CORS_ORIGIN=http://localhost
+      - MAX_PLAYERS_PER_ROOM=500
+      - CORS_ORIGIN=https://te-itx-2025.site
+      - GAME_DURATION=3000000
     ports:
       - "5000:5000"
     depends_on:
@@ -30,14 +32,17 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1'
-          memory: 700M
+          cpus: '1.2'
+          memory: 3072M
   frontend:
     build:
       context: ..
       dockerfile: deployment/Dockerfile.frontend
+    # Published host port 8080 -> container 80 so host-level nginx (running on host:80)
+    # can proxy to 127.0.0.1:8080. This avoids conflicts with host nginx listening on
+    # port 80 and keeps compose services reachable from host nginx.
     ports:
-      - "80:80"
+      - "8080:80"
     depends_on:
       - backend
     restart: unless-stopped
@@ -45,7 +50,7 @@ services:
       resources:
         limits:
           cpus: '0.5'
-          memory: 500M
+          memory: 1536M
 
 volumes:
   redis-data:

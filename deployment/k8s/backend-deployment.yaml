@@ -22,12 +22,14 @@ spec:
               value: "true"
             - name: REDIS_URL
               value: "redis://redis:6379"
+            - name: CORS_ORIGIN
+              value: "https://te-itx-2025.site"
           ports:
             - containerPort: 5000
           resources:
             limits:
-              cpu: "1"
-              memory: "700Mi"
+              cpu: "1.5"
+              memory: "4096Mi"
 ---
 apiVersion: v1
 kind: Service

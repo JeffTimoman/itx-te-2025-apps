@@ -9,15 +9,26 @@ COPY frontend/tsconfig.json ./
 COPY frontend/postcss.config.mjs ./
 COPY frontend/public ./public
 COPY frontend/src ./src
+COPY frontend/.env.local ./.env.local
 
 RUN npm install
 RUN npm run build
 
 # Production image
-FROM nginx:stable-alpine
-COPY --from=builder /usr/src/app/.next /usr/share/nginx/html/.next
-COPY --from=builder /usr/src/app/public /usr/share/nginx/html/public
-COPY deployment/nginx.frontend.conf /etc/nginx/conf.d/default.conf
+FROM node:18-slim AS runner
+WORKDIR /usr/src/app
+
+# Copy package manifests and install production dependencies
+COPY frontend/package.json frontend/package-lock.json* ./
+RUN npm ci --only=production || npm install --only=production
+
+# Copy built Next output and public assets
+COPY --from=builder /usr/src/app/.next ./.next
+COPY --from=builder /usr/src/app/public ./public
+# (next.config omitted from copy - include in build if your project requires it)
+
+ENV NODE_ENV=production
+ENV PORT=80
 
 EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["npx", "next", "start", "-p", "80"]
