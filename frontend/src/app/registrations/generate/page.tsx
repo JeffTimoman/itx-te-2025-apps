@@ -35,8 +35,15 @@ export default function GeneratePage() {
   useEffect(() => { createCode(); }, []);
 
   function qrSrc(url: string) {
-    // Use a free QR image generator (no dependency). URL-encode the payload.
-    return `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(url)}`;
+    // Use our backend QR generator so we don't rely on external services.
+    const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+    const size = 400;
+    // The backend /api/qr returns a PNG image for the provided data
+    // We pass the full URL as data
+    const base = BACKEND || '';
+    // ensure leading slash on path
+    const endpoint = `${base}/api/qr?size=${size}&data=${encodeURIComponent(url)}`;
+    return endpoint;
   }
 
   return (

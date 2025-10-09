@@ -12,6 +12,9 @@ const server = http.createServer(app);
 const { initPgPool, getPgPool } = require('./src/config/postgres');
 let pgPool = null;
 
+// QR generator
+const QRCode = require('qrcode');
+
 // Try to initialize Postgres pool with retries. If Postgres is not yet ready
 // at container startup, this will keep attempting so the backend can recover
 // without requiring a container restart.
@@ -969,5 +972,23 @@ app.post('/api/admin/gifts/:id/save-winner', async (req, res) => {
     return res.status(500).json({ error: 'Failed to save winner' });
   } finally {
     client.release();
+  }
+});
+
+// QR generation endpoint (PNG). Query param: data (required). Optional size (px).
+app.get('/api/qr', async (req, res) => {
+  const data = String(req.query.data || '');
+  const size = parseInt(req.query.size || '400', 10) || 400;
+  if (!data) return res.status(400).json({ error: 'Missing data query param' });
+  try {
+    // Use toBuffer to produce a PNG image buffer
+    const opts = { type: 'png', width: size, margin: 1 };
+    const buffer = await QRCode.toBuffer(data, opts);
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(buffer);
+  } catch (err) {
+    console.error('QR generation failed', err && err.message);
+    res.status(500).json({ error: 'Failed to generate QR' });
   }
 });
