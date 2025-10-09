@@ -162,7 +162,20 @@ app.get('/api/rooms', async (req, res) => {
 app.get('/api/admin/registrants', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   try {
-    const result = await pgPool.query('SELECT id, name, gacha_code, email, is_win, is_verified, is_send_email, bureau, created_at FROM registrants ORDER BY id DESC LIMIT 1000');
+    const sql = `
+      SELECT r.id, r.name, r.gacha_code, r.email, r.is_win, r.is_verified, r.is_send_email, r.bureau, r.created_at,
+        COALESCE(gwagg.gifts, '[]') AS gifts
+      FROM registrants r
+      LEFT JOIN (
+        SELECT gw.registrant_id, json_agg(json_build_object('gift_id', g.id, 'name', g.name) ORDER BY gw.date_awarded) AS gifts
+        FROM gift_winners gw
+        JOIN gift g ON g.id = gw.gift_id
+        GROUP BY gw.registrant_id
+      ) gwagg ON gwagg.registrant_id = r.id
+      ORDER BY r.id DESC
+      LIMIT 1000
+    `;
+    const result = await pgPool.query(sql);
     res.json(result.rows);
   } catch (err) {
     console.error('Error fetching registrants', err && err.message);

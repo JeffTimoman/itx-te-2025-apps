@@ -71,6 +71,7 @@ export default function RegistrantsAdminPage() {
             <tr className="text-left">
               <th className="p-2">ID</th>
               <th className="p-2">Name</th>
+              <th className="p-2">Gifts</th>
               <th className="p-2">Code</th>
               <th className="p-2">Email</th>
               <th className="p-2">Bureau</th>
@@ -84,6 +85,7 @@ export default function RegistrantsAdminPage() {
               <tr key={r.id} className="border-t">
                 <td className="p-2">{r.id}</td>
                 <td className="p-2">{r.name}</td>
+                <td className="p-2">{r.gifts && r.gifts.length ? r.gifts.map(g => g.name).join(', ') : '—'}</td>
                 <td className="p-2 font-mono">{r.gacha_code}</td>
                 <td className="p-2">{r.email}</td>
                 <td className="p-2">{r.bureau}</td>

@@ -4,6 +4,7 @@ export type Registrant = {
   id: number;
   name: string;
   gacha_code: string;
+  gifts?: Array<{ gift_id: number; name: string }> | null;
   email?: string | null;
   is_win?: string;
   is_verified?: string;
