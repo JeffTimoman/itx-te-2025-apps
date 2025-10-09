@@ -213,11 +213,40 @@ app.post('/api/admin/registrants/:id/generate-code', async (req, res) => {
   }
 });
 
+  // Public generator endpoint: create an unassigned verification code (no registrant_id).
+  // Scanners can point to a QR that hits this generator, which redirects users to
+  // `/registrations/verify/{code}` where they pick their name and enter email.
+  app.post('/api/registrations/generate', async (req, res) => {
+    if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+    try {
+      const code = generateVerificationCode(32);
+      const insertSql = 'INSERT INTO verification_codes (code) VALUES ($1) RETURNING code, date_created';
+      const result = await pgPool.query(insertSql, [code]);
+      const created = result.rows[0];
+      return res.json({ code: created.code, verifyPath: `/registrations/verify/${created.code}` });
+    } catch (err) {
+      console.error('Error generating public verification code', err && err.message);
+      res.status(500).json({ error: 'Failed to generate verification code' });
+    }
+  });
+
+  // Public endpoint: list unverified registrants (basic fields) so scanners can pick their name
+  app.get('/api/registrants/unverified', async (req, res) => {
+    if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+    try {
+      const result = await pgPool.query('SELECT id, name, bureau, gacha_code FROM registrants WHERE is_verified = $1 ORDER BY name ASC LIMIT 1000', ['N']);
+      res.json(result.rows);
+    } catch (err) {
+      console.error('Error fetching unverified registrants', err && err.message);
+      res.status(500).json({ error: 'Failed to fetch registrants' });
+    }
+  });
+
 // Verify a code (single-use, 15-minute TTL). Expects { email } in body to set registrant email.
 app.post('/api/registrations/verify', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   try {
-    const { code, email } = req.body || {};
+    const { code, email, registrant_id } = req.body || {};
     if (!code) return res.status(400).json({ error: 'Code required' });
 
     // Transactional check + mark used + set registrant email + set is_verified
@@ -244,18 +273,39 @@ app.post('/api/registrations/verify', async (req, res) => {
         return res.status(400).json({ error: 'Code expired' });
       }
 
+      // Determine the target registrant. If the code is unassigned (registrant_id NULL),
+      // require registrant_id provided in the body.
+      let targetRegistrantId = row.registrant_id;
+      if (!targetRegistrantId) {
+        if (!registrant_id) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Registrant id required for this code' });
+        }
+        // validate registrant exists and is not already verified
+        const rcheck = await client.query('SELECT id, is_verified FROM registrants WHERE id = $1 FOR UPDATE', [registrant_id]);
+        if (rcheck.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(404).json({ error: 'Registrant not found' });
+        }
+        if (rcheck.rows[0].is_verified === 'Y') {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: 'Registrant already verified' });
+        }
+        targetRegistrantId = registrant_id;
+      }
+
       // mark code as used
       await client.query('UPDATE verification_codes SET is_used = $1 WHERE id = $2', ['Y', row.id]);
 
       // set registrant email if provided and set is_verified to 'Y'
       if (email) {
-        await client.query('UPDATE registrants SET email = $1, is_verified = $2 WHERE id = $3', [email, 'Y', row.registrant_id]);
+        await client.query('UPDATE registrants SET email = $1, is_verified = $2 WHERE id = $3', [email, 'Y', targetRegistrantId]);
       } else {
-        await client.query('UPDATE registrants SET is_verified = $1 WHERE id = $2', ['Y', row.registrant_id]);
+        await client.query('UPDATE registrants SET is_verified = $1 WHERE id = $2', ['Y', targetRegistrantId]);
       }
 
       await client.query('COMMIT');
-      res.json({ success: true, registrant_id: row.registrant_id });
+      res.json({ success: true, registrant_id: targetRegistrantId });
     } catch (e) {
       await client.query('ROLLBACK');
       throw e;
