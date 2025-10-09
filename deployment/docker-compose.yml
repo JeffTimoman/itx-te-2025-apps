@@ -63,6 +63,8 @@ services:
     # port 80 and keeps compose services reachable from host nginx.
     ports:
       - "8080:80"
+    environment:
+      - NEXT_PUBLIC_BACKEND_URL=http://te-itx-2025.site
     depends_on:
       - backend
     restart: unless-stopped

@@ -18,7 +18,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
     // fetch unverified registrants
     (async () => {
       try {
-        const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_BASE || '');
+        const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_URL || '');
         const resp = await fetch(`${BACKEND}/api/registrants/unverified`);
         if (resp.ok) {
           const data = await resp.json();
@@ -36,7 +36,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
     if (!selectedId) return setStatus('Please select your name');
     setLoading(true);
     try {
-      const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_BASE || 'http://localhost:5000');
+      const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_URL || '');
       const resp = await fetch(`${BACKEND}/api/registrations/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

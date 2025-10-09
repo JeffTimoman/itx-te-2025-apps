@@ -6,7 +6,9 @@ let socket: Socket | null = null;
 
 export function getSocket() {
   if (!socket) {
-    socket = io(process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000', {
+    const base = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+    // If base is empty, io() will connect to the same origin which served the page.
+    socket = io(base || undefined, {
       autoConnect: true
     });
   }

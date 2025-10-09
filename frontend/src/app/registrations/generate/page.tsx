@@ -11,7 +11,7 @@ export default function GeneratePage() {
     setLoading(true);
     setError(null);
     try {
-  const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_BASE || '');
+  const BACKEND = process.env.NEXT_PUBLIC_BACKEND_URL || "";
   const resp = await fetch(`${BACKEND}/api/registrations/generate`, { method: 'POST' });
       if (!resp.ok) {
         const txt = await resp.text();
