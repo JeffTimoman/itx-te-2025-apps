@@ -295,8 +295,8 @@ io.on('connection', (socket) => {
       if (!room) return;
       delete room.firstTap;
   delete room.awaitingAnswer;
-  // reset status to post so taps are immediately allowed again after reset
-  room.status = 'post';
+  // Reset status to 'waiting' so tapping is disabled until the admin starts a new round
+  room.status = 'waiting';
   // clear any recorded taps so players can tap again
   delete room.taps;
   // clear lastWinner/roundWinners so previous winners can tap again
