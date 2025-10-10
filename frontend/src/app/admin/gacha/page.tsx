@@ -70,10 +70,11 @@ export default function GachaPage() {
   const prefixTimer = useRef<number | null>(null);
   const suffixTimer = useRef<number | null>(null);
 
-  // confetti instance (works in fullscreen)
-  const confettiInstanceRef = useRef<ReturnType<
-    typeof import("canvas-confetti")["default"]
-  > | null>(null);
+  // confetti instance (works in fullscreen) — the library's `create` returns a
+  // callable instance that we invoke to burst confetti.
+  const confettiInstanceRef = useRef<
+    import("canvas-confetti").ConfettiFn | null
+  >(null);
 
   // derived
   const selectedGiftObj = useMemo(
