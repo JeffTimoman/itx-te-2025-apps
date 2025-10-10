@@ -346,23 +346,38 @@ export default function GachaPage() {
         </header>
       )}
 
-      {/* Slide-in Menu (unchanged) */}
+      {/* Fullscreen FAB: toggle menu when in fullscreen (sibling to header) */}
+      {isFullscreen && (
+        <button
+          onClick={() => setIsMenuOpen((v) => !v)}
+          className="fixed z-[10000] right-4 bottom-4 rounded-full px-4 py-3 bg-indigo-500/95 hover:bg-indigo-500 border border-white/20 shadow-lg text-white text-sm font-semibold"
+          aria-label="Toggle Menu"
+        >
+          {isMenuOpen ? "Close Menu" : "Open Menu"}
+        </button>
+      )}
+
+      {/* Slide-in Menu (backdrop + panel) — stronger z-index and explicit keys to avoid animation conflicts */}
       <AnimatePresence>
         {isMenuOpen && (
           <>
+            {/* Backdrop */}
             <motion.div
+              key="menu-backdrop"
               onClick={() => setIsMenuOpen(false)}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-40 bg-black/40"
+              className="fixed inset-0 z-[9998] bg-black/40"
             />
+            {/* Panel */}
             <motion.aside
+              key="menu-panel"
               initial={{ x: -320, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: -320, opacity: 0 }}
               transition={{ type: "spring", stiffness: 260, damping: 24 }}
-              className="fixed left-0 top-0 bottom-0 z-50 w-[320px] max-w-[85vw] bg-slate-900/90 border-r border-white/10 backdrop-blur-xl p-6 overflow-y-auto"
+              className="fixed left-0 top-0 bottom-0 z-[9999] w-[320px] max-w-[85vw] bg-slate-900/90 border-r border-white/10 backdrop-blur-xl p-6 overflow-y-auto"
             >
               {/* ...controls content stays the same */}
             </motion.aside>
