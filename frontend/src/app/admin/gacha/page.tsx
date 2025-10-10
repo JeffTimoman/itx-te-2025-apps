@@ -76,6 +76,8 @@ export default function GachaPage() {
     import("canvas-confetti").ConfettiFn | null
   >(null);
 
+  const confettiCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
   // derived
   const selectedGiftObj = useMemo(
     () => gifts.find((g) => g.id === selectedGift) || null,
@@ -152,20 +154,37 @@ export default function GachaPage() {
   async function ensureConfettiInstance() {
     const confettiMod = await import("canvas-confetti");
 
-    // Prefer the *actual* fullscreen element if present
+    // Choose where to mount the canvas
     const root =
       (document.fullscreenElement as HTMLElement | null) ??
       hostRef.current ??
       document.body;
 
-    // Recreate every time so the canvas is attached to the correct root
-    confettiInstanceRef.current = confettiMod.create(root, {
+    // Remove any old canvas so we don’t stack them
+    if (confettiCanvasRef.current?.parentNode) {
+      confettiCanvasRef.current.parentNode.removeChild(
+        confettiCanvasRef.current
+      );
+    }
+    confettiCanvasRef.current = null;
+
+    // Create a dedicated canvas and put it on top
+    const canvas = document.createElement("canvas");
+    canvas.style.position = "fixed";
+    canvas.style.inset = "0";
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
+    canvas.style.pointerEvents = "none";
+    canvas.style.zIndex = "2147483647";
+    root.appendChild(canvas);
+    confettiCanvasRef.current = canvas;
+
+    // Bind confetti to the *canvas*, not the root
+    confettiInstanceRef.current = confettiMod.create(canvas, {
       resize: true,
-      // Workers can be blocked or fail with OffscreenCanvas on some setups
-      useWorker: false,
+      useWorker: false, // more compatible than worker/offscreen in many setups
     });
   }
-
 
   async function burstConfetti(power: "big" | "small") {
     if (!confettiInstanceRef.current) await ensureConfettiInstance();
@@ -196,7 +215,6 @@ export default function GachaPage() {
       origin: { x: 0.8, y: 0.6 },
     });
   }
-
 
   // cleanup timers
   useEffect(() => {
@@ -753,7 +771,6 @@ export default function GachaPage() {
                       {suffixDisplay}
                     </motion.div>
                   </div>
-
                 </motion.div>
               )}
             </AnimatePresence>
