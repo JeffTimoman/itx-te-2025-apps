@@ -47,5 +47,6 @@ CREATE TABLE IF NOT EXISTS gift_winners(
   registrant_id INTEGER REFERENCES registrants(id) ON DELETE CASCADE,
   gift_id INTEGER REFERENCES gift(id) ON DELETE CASCADE,
   date_awarded TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (registrant_id, gift_id)
+  UNIQUE (registrant_id, gift_id),
+  is_assigned CHAR(1) NOT NULL DEFAULT 'N'
 );

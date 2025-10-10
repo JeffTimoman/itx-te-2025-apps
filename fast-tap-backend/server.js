@@ -992,3 +992,57 @@ app.get('/api/qr', async (req, res) => {
     res.status(500).json({ error: 'Failed to generate QR' });
   }
 });
+
+// Assign a gift manually to a registrant without consuming is_win (marks is_assigned = 'Y')
+app.post('/api/admin/gifts/:id/assign', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  const giftId = parseInt(req.params.id, 10);
+  const { registrant_id } = req.body || {};
+  if (Number.isNaN(giftId)) return res.status(400).json({ error: 'Invalid gift id' });
+  if (!registrant_id) return res.status(400).json({ error: 'registrant_id is required' });
+
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+    // lock gift row to avoid races
+    const gRes = await client.query('SELECT id, quantity FROM gift WHERE id = $1 FOR UPDATE', [giftId]);
+    if (gRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Gift not found' });
+    }
+
+    const qty = gRes.rows[0].quantity || 0;
+    const awardedRes = await client.query('SELECT COUNT(*) AS cnt FROM gift_winners WHERE gift_id = $1', [giftId]);
+    const awardedCount = parseInt(awardedRes.rows[0].cnt, 10) || 0;
+    if (awardedCount >= qty) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'No remaining quantity for this gift' });
+    }
+
+    // ensure registrant exists
+    const rRes = await client.query('SELECT id FROM registrants WHERE id = $1', [registrant_id]);
+    if (rRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Registrant not found' });
+    }
+
+    // prevent duplicate assignment for same registrant+gift
+    const dup = await client.query('SELECT id FROM gift_winners WHERE gift_id = $1 AND registrant_id = $2', [giftId, registrant_id]);
+    if (dup.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'This registrant already has this gift' });
+    }
+
+    const insertSql = `INSERT INTO gift_winners (registrant_id, gift_id, is_assigned) VALUES ($1, $2, 'Y') RETURNING id, registrant_id, gift_id, date_awarded, is_assigned`;
+    const ir = await client.query(insertSql, [registrant_id, giftId]);
+    await client.query('COMMIT');
+
+    return res.json(ir.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error assigning gift', err && err.message);
+    res.status(500).json({ error: 'Failed to assign gift' });
+  } finally {
+    client.release();
+  }
+});

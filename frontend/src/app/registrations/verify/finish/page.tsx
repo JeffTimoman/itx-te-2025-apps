@@ -45,7 +45,7 @@ export default function VerificationFinishPage() {
           <h2 className="text-2xl font-semibold">Thank you for verifying 🎉</h2>
           <p className="mt-2 text-slate-300">
             Your registration has been successfully activated. You can safely
-            close this page or return to the homepage.
+            close this page.
           </p>
 
           <div className="mt-8 flex items-center justify-center gap-3">
