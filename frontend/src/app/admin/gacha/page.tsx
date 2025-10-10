@@ -728,8 +728,8 @@ export default function GachaPage() {
                     Ready to draw
                   </div>
                   <p className="mt-2 opacity-80">
-                    Prepare your codes to
-                    <span className="font-semibold">Win</span>.
+                    Check email for code to
+                    <span className="font-semibold">{' Win Reward!'}</span>.
                   </p>
                 </motion.div>
               ) : (

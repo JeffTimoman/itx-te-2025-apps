@@ -321,7 +321,16 @@ export default function AssignGiftPage() {
                     pagedRegs.map((r) => (
                       <tr
                         key={r.id}
-                        className={`border-t border-white/10 hover:bg-white/5 ${
+                        onClick={() => setSelectedRegistrant(r.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setSelectedRegistrant(r.id);
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        className={`border-t border-white/10 hover:bg-white/5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400/40 ${
                           selectedRegistrant === r.id ? "bg-indigo-500/10" : ""
                         }`}
                       >
