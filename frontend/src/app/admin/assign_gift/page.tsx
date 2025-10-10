@@ -413,7 +413,7 @@ export default function AssignGiftPage() {
   );
 }
 
-function Th({ children }: { children: React.ReactNode }) {
+function Th({ children }: { children?: React.ReactNode }) {
   return (
     <th className="p-3 text-[11px] font-semibold uppercase tracking-wider text-slate-200/90">
       {children}
