@@ -10,7 +10,7 @@ import React, {
 import { motion, AnimatePresence } from "framer-motion";
 
 /**
- * GachaPage — code-only reveal with long glitch + toggleable menu
+ * GachaPage — code + menu + sequential glitch (prefix then suffix)
  *
  * 🔧 Packages:
  *   npm i framer-motion canvas-confetti
@@ -27,11 +27,18 @@ type GiftAvail = {
 
 type PreviewWinner = { id: number; name: string; gacha_code?: string | null };
 
-const GLITCH_MS_FIRST = 8000; // ~15s for "Get Winner"
-const GLITCH_MS_REFRESH = 2000; // short for "Refresh Winner"
-const DECODE_MS_FIRST = 1200; // decode time after long glitch
-const DECODE_MS_REFRESH = 400;
-const SUFFIX_LEN = 10;
+// Timings
+const GLITCH_MS_FIRST_PREFIX = 2200;
+const GLITCH_MS_FIRST_SUFFIX = 8000; // long drum-roll overall, but suffix starts after prefix completes
+const GLITCH_MS_REFRESH_PREFIX = 500;
+const GLITCH_MS_REFRESH_SUFFIX = 2000;
+
+const DECODE_MS_FIRST_PREFIX = 360;
+const DECODE_MS_FIRST_SUFFIX = 1200;
+const DECODE_MS_REFRESH_PREFIX = 220;
+const DECODE_MS_REFRESH_SUFFIX = 400;
+
+const SUFFIX_LEN = 10; // 10 digits
 
 export default function GachaPage() {
   // data
@@ -46,16 +53,27 @@ export default function GachaPage() {
     "idle" | "drawing" | "reveal" | "refresh-reveal"
   >("idle");
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [revealDone, setRevealDone] = useState(false); // controls when to re-show settings
-  const [isMenuOpen, setIsMenuOpen] = useState(false); // slide-in menu toggle
+  const [revealDone, setRevealDone] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [showPreviewName, setShowPreviewName] = useState(false);
 
   // code animation
+  const [prefixDisplay, setPrefixDisplay] = useState<string>("CCCC2025"); // placeholder
   const [suffixDisplay, setSuffixDisplay] = useState<string>("**********");
-  const [isGlitching, setIsGlitching] = useState(false);
-  const scrambleTimer = useRef<number | null>(null);
+  const [isGlitchingPrefix, setIsGlitchingPrefix] = useState(false);
+  const [isGlitchingSuffix, setIsGlitchingSuffix] = useState(false);
+
   const hostRef = useRef<HTMLDivElement | null>(null);
   const menuFirstButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  // timers
+  const prefixTimer = useRef<number | null>(null);
+  const suffixTimer = useRef<number | null>(null);
+
+  // confetti instance (works in fullscreen)
+  const confettiInstanceRef = useRef<ReturnType<
+    typeof import("canvas-confetti")["default"]
+  > | null>(null);
 
   // derived
   const selectedGiftObj = useMemo(
@@ -63,7 +81,6 @@ export default function GachaPage() {
     [gifts, selectedGift]
   );
 
-  // helpers
   const toMsg = (e: unknown) => {
     if (typeof e === "string") return e;
     if (!e || typeof e !== "object") return String(e);
@@ -84,10 +101,7 @@ export default function GachaPage() {
       if (!res.ok) throw await res.json();
       const data = await res.json();
       setGifts(data || []);
-      // auto-select first gift if nothing is selected
-      if (!selectedGift && data?.length) {
-        setSelectedGift(data[0].id);
-      }
+      if (!selectedGift && data?.length) setSelectedGift(data[0].id);
     } catch (e) {
       setError(toMsg(e));
     } finally {
@@ -109,27 +123,49 @@ export default function GachaPage() {
   async function enterFullscreen() {
     try {
       await hostRef.current?.requestFullscreen();
+      // (re)bind confetti to the fullscreen host element
+      await ensureConfettiInstance();
     } catch {}
   }
   async function exitFullscreen() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
+      // (re)bind confetti back to document.body (hostRef still works, keep it consistent)
+      await ensureConfettiInstance();
     } catch {}
   }
 
-  // util: parse code
+  // parse code:
+  // Expect "<first8>-<10digits>" but we are tolerant: take first segment's first 8 chars;
+  // second segment: first 10 digits (pad with X if fewer).
   function splitCode(code?: string | null): { prefix: string; suffix: string } {
     if (!code) return { prefix: "", suffix: "" };
-    const [pre, suf] = code.split("-");
-    return {
-      prefix: pre || "",
-      suffix: (suf || "").padEnd(SUFFIX_LEN, "X").slice(0, SUFFIX_LEN),
-    };
+    const [preRaw = "", sufRaw = ""] = code.split("-");
+    const prefix = preRaw.slice(0, 8);
+    const digits = (sufRaw.match(/\d/g) || []).join("").slice(0, SUFFIX_LEN);
+    const suffix = digits.padEnd(SUFFIX_LEN, "0"); // keep digits; pad with zeros
+    return { prefix, suffix };
   }
 
-  // confetti (lazy)
+  // confetti bound to hostRef so it renders in fullscreen too
+  async function ensureConfettiInstance() {
+    const confettiMod = await import("canvas-confetti");
+    if (hostRef.current) {
+      confettiInstanceRef.current = confettiMod.create(hostRef.current, {
+        resize: true,
+        useWorker: true,
+      });
+    } else {
+      confettiInstanceRef.current = confettiMod.create(undefined, {
+        resize: true,
+        useWorker: true,
+      });
+    }
+  }
+
   async function burstConfetti(power: "big" | "small") {
-    const confetti = (await import("canvas-confetti")).default;
+    if (!confettiInstanceRef.current) await ensureConfettiInstance();
+    const confetti = confettiInstanceRef.current!;
     const base = {
       spread: power === "big" ? 80 : 55,
       startVelocity: power === "big" ? 55 : 35,
@@ -137,7 +173,7 @@ export default function GachaPage() {
       gravity: 0.9,
       zIndex: 9999,
     } as const;
-    const center = { x: 0.5, y: 0.4 };
+    const center = { x: 0.5, y: 0.45 };
     confetti({
       ...base,
       particleCount: power === "big" ? 160 : 60,
@@ -155,50 +191,78 @@ export default function GachaPage() {
     });
   }
 
-  // cleanup
+  // cleanup timers
   useEffect(() => {
     return () => {
-      if (scrambleTimer.current) window.clearTimeout(scrambleTimer.current);
+      if (prefixTimer.current) window.clearTimeout(prefixTimer.current);
+      if (suffixTimer.current) window.clearTimeout(suffixTimer.current);
     };
   }, []);
 
-  // code scramble → long glitch then decode
-  function animateSuffixReveal(
-    trueSuffix: string,
-    spectacular: boolean,
-    onDone?: () => void
-  ) {
-    if (scrambleTimer.current) window.clearTimeout(scrambleTimer.current);
+  // generic glitch helper (used for prefix & suffix)
+  function glitchReveal({
+    target,
+    spectacular,
+    isDigitsOnly,
+    onFrame,
+    onDone,
+    phase,
+  }: {
+    target: string;
+    spectacular: boolean;
+    isDigitsOnly: boolean;
+    onFrame: (s: string) => void;
+    onDone?: () => void;
+    phase: "prefix" | "suffix";
+  }) {
+    const alphabetLetters = "ABCDEFGHJKMNPQRSTUVWXYZ";
+    const alphabetDigits = "0123456789";
+    const alphabetSymbols = "@#$%&*?+-";
+    const alphabet = isDigitsOnly
+      ? alphabetDigits
+      : alphabetLetters + alphabetDigits + alphabetSymbols;
 
-    const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-    const target = (trueSuffix || "")
-      .padEnd(SUFFIX_LEN, "X")
-      .slice(0, SUFFIX_LEN);
+    const GLITCH_MS =
+      phase === "prefix"
+        ? spectacular
+          ? GLITCH_MS_FIRST_PREFIX
+          : GLITCH_MS_REFRESH_PREFIX
+        : spectacular
+        ? GLITCH_MS_FIRST_SUFFIX
+        : GLITCH_MS_REFRESH_SUFFIX;
 
-    const GLITCH_MS = spectacular ? GLITCH_MS_FIRST : GLITCH_MS_REFRESH;
-    const DECODE_MS = spectacular ? DECODE_MS_FIRST : DECODE_MS_REFRESH;
-
-    setIsGlitching(true);
-    setRevealDone(false);
+    const DECODE_MS =
+      phase === "prefix"
+        ? spectacular
+          ? DECODE_MS_FIRST_PREFIX
+          : DECODE_MS_REFRESH_PREFIX
+        : spectacular
+        ? DECODE_MS_FIRST_SUFFIX
+        : DECODE_MS_REFRESH_SUFFIX;
 
     const start = performance.now();
+    if (phase === "prefix") setIsGlitchingPrefix(true);
+    if (phase === "suffix") setIsGlitchingSuffix(true);
 
-    const loop = () => {
+    const tick = () => {
       const now = performance.now();
       const elapsed = now - start;
 
-      // Phase 1: long glitch (fully random)
+      // Phase 1: pure glitch
       if (elapsed < GLITCH_MS) {
         const scrambled = Array.from(
-          { length: SUFFIX_LEN },
+          { length: target.length },
           () => alphabet[Math.floor(Math.random() * alphabet.length)]
         ).join("");
-        setSuffixDisplay(scrambled);
-        scrambleTimer.current = window.setTimeout(loop, spectacular ? 33 : 28);
+        onFrame(scrambled);
+        const delay = spectacular ? 33 : 28;
+        const handle = window.setTimeout(tick, delay);
+        if (phase === "prefix") prefixTimer.current = handle;
+        else suffixTimer.current = handle;
         return;
       }
 
-      // Phase 2: decode to true value (left-to-right lock-in)
+      // Phase 2: decode L->R
       const decodeElapsed = elapsed - GLITCH_MS;
       const t = Math.min(1, decodeElapsed / DECODE_MS);
       const revealCount = Math.floor(t * target.length);
@@ -212,19 +276,56 @@ export default function GachaPage() {
         )
         .join("");
 
-      setSuffixDisplay(decoded);
+      onFrame(decoded);
 
       if (t < 1) {
-        scrambleTimer.current = window.setTimeout(loop, spectacular ? 30 : 24);
+        const delay = spectacular ? 30 : 24;
+        const handle = window.setTimeout(tick, delay);
+        if (phase === "prefix") prefixTimer.current = handle;
+        else suffixTimer.current = handle;
       } else {
-        setSuffixDisplay(target);
-        setIsGlitching(false);
-        setRevealDone(true);
-        onDone?.(); // fire AFTER reveal completes (confetti happens here)
+        onFrame(target);
+        if (phase === "prefix") setIsGlitchingPrefix(false);
+        if (phase === "suffix") setIsGlitchingSuffix(false);
+        onDone?.();
       }
     };
 
-    loop();
+    tick();
+  }
+
+  // Orchestrate sequential glitch: prefix first, then suffix. Confetti after suffix.
+  function startRevealSequence(
+    prefix: string,
+    suffix: string,
+    spectacular: boolean
+  ) {
+    setRevealDone(false);
+    // initialize displayed values
+    setPrefixDisplay(prefix ? "********" : "");
+    setSuffixDisplay("**********");
+
+    glitchReveal({
+      target: prefix,
+      spectacular,
+      isDigitsOnly: false,
+      onFrame: setPrefixDisplay,
+      phase: "prefix",
+      onDone: () => {
+        glitchReveal({
+          target: suffix,
+          spectacular,
+          isDigitsOnly: true,
+          onFrame: setSuffixDisplay,
+          phase: "suffix",
+          onDone: () => {
+            setRevealDone(true);
+            // confetti AFTER suffix completes
+            burstConfetti(spectacular ? "big" : "small");
+          },
+        });
+      },
+    });
   }
 
   async function pickRandom(spectacular: boolean) {
@@ -233,8 +334,7 @@ export default function GachaPage() {
     setLoading(true);
     setStage("drawing");
     setRevealDone(false);
-    setIsGlitching(true);
-    setIsMenuOpen(false); // auto-hide the menu on start
+    setIsMenuOpen(false); // hide menu on start
 
     try {
       const res = await fetch(
@@ -245,20 +345,20 @@ export default function GachaPage() {
       const data = (await res.json()) as PreviewWinner;
       setPreview(data);
 
-      // start reveal sequence
-      const { suffix } = splitCode(data.gacha_code || "");
-      setSuffixDisplay("**********");
+      const { prefix, suffix } = splitCode(data.gacha_code || "");
       const nextStage = spectacular ? "reveal" : "refresh-reveal";
       setStage(nextStage);
 
-      // confetti AFTER the reveal completes
-      animateSuffixReveal(suffix, spectacular, () =>
-        burstConfetti(spectacular ? "big" : "small")
+      startRevealSequence(
+        prefix || "********",
+        suffix || "0000000000",
+        spectacular
       );
     } catch (e) {
       setError(toMsg(e));
       setStage("idle");
-      setIsGlitching(false);
+      setIsGlitchingPrefix(false);
+      setIsGlitchingSuffix(false);
       setRevealDone(true);
     } finally {
       setLoading(false);
@@ -281,7 +381,6 @@ export default function GachaPage() {
       alert("Winner saved");
       setStage("idle");
       setRevealDone(true);
-      // keep the menu state as-is (remains closed unless user opens)
     } catch (e) {
       setError(toMsg(e));
     } finally {
@@ -296,19 +395,24 @@ export default function GachaPage() {
     };
     if (isMenuOpen) {
       document.addEventListener("keydown", onKey);
-      // nudge focus into the panel for keyboard users
       setTimeout(() => menuFirstButtonRef.current?.focus(), 0);
     }
     return () => document.removeEventListener("keydown", onKey);
   }, [isMenuOpen]);
 
-  const cyberBg =
-    "bg-[radial-gradient(1000px_600px_at_50%_-10%,rgba(99,102,241,0.25),transparent),radial-gradient(800px_400px_at_30%_120%,rgba(16,185,129,0.18),transparent)]";
-
-  const { prefix } = splitCode(preview?.gacha_code); // PPPP2025
+  // Ensure a confetti instance exists at least once
+  useEffect(() => {
+    ensureConfettiInstance();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const remaining = (g: GiftAvail) =>
     Math.max(0, (g.quantity ?? 0) - (g.awarded ?? 0));
+
+  const cyberBg =
+    "bg-[radial-gradient(1000px_600px_at_50%_-10%,rgba(99,102,241,0.25),transparent),radial-gradient(800px_400px_at_30%_120%,rgba(16,185,129,0.18),transparent)]";
+
+  const { prefix: realPrefix } = splitCode(preview?.gacha_code);
 
   return (
     <div
@@ -355,11 +459,11 @@ export default function GachaPage() {
               >
                 {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
               </button>
-
-              {/* Menu Toggle */}
               <button
                 onClick={() => setIsMenuOpen((v) => !v)}
                 className="px-3 py-1.5 rounded-lg bg-indigo-500/90 hover:bg-indigo-500 text-xs font-semibold"
+                aria-expanded={isMenuOpen}
+                aria-controls="gacha-controls"
               >
                 {isMenuOpen ? "Close Menu" : "Open Menu"}
               </button>
@@ -368,30 +472,32 @@ export default function GachaPage() {
         </header>
       )}
 
-      {/* Fullscreen FAB: toggle menu when in fullscreen (sibling to header) */}
+      {/* Fullscreen FAB to toggle menu */}
       {isFullscreen && (
         <button
           onClick={() => setIsMenuOpen((v) => !v)}
           className="fixed z-[10000] right-4 bottom-4 rounded-full px-4 py-3 bg-indigo-500/95 hover:bg-indigo-500 border border-white/20 shadow-lg text-white text-sm font-semibold"
           aria-label="Toggle Menu"
+          aria-expanded={isMenuOpen}
+          aria-controls="gacha-controls"
         >
           {isMenuOpen ? "Close Menu" : "Open Menu"}
         </button>
       )}
 
       {/* Slide-in Menu (backdrop + panel) */}
-      <AnimatePresence>
+      <AnimatePresence initial={false}>
         {isMenuOpen && (
           <>
             {/* Backdrop */}
-            <motion.div
+            <motion.button
               key="menu-backdrop"
               onClick={() => setIsMenuOpen(false)}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="fixed inset-0 z-[9998] bg-black/40"
-              aria-hidden="true"
+              aria-label="Close menu"
             />
             {/* Panel */}
             <motion.aside
@@ -404,8 +510,8 @@ export default function GachaPage() {
               role="dialog"
               aria-modal="true"
               aria-label="Gacha Controls"
+              id="gacha-controls"
             >
-              {/* Controls CONTENT (previously missing) */}
               <div className="space-y-5">
                 <div className="flex items-center justify-between">
                   <h2 className="text-sm font-semibold text-white/90">
@@ -426,6 +532,7 @@ export default function GachaPage() {
                   </div>
                 )}
 
+                {/* Gift picker */}
                 <div>
                   <div className="text-xs uppercase tracking-wider text-white/60 mb-2">
                     Gift
@@ -479,6 +586,7 @@ export default function GachaPage() {
                   </div>
                 </div>
 
+                {/* Actions */}
                 <div className="border-t border-white/10 pt-4">
                   <div className="text-xs uppercase tracking-wider text-white/60 mb-2">
                     Actions
@@ -489,7 +597,9 @@ export default function GachaPage() {
                       disabled={
                         loading ||
                         !selectedGift ||
-                        Boolean(selectedGiftObj && remaining(selectedGiftObj) <= 0)
+                        Boolean(
+                          selectedGiftObj && remaining(selectedGiftObj) <= 0
+                        )
                       }
                       className="px-3 py-2 rounded-md bg-indigo-500/90 hover:bg-indigo-500 border border-indigo-300/30 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
                     >
@@ -500,7 +610,9 @@ export default function GachaPage() {
                       disabled={
                         loading ||
                         !selectedGift ||
-                        Boolean(selectedGiftObj && remaining(selectedGiftObj) <= 0)
+                        Boolean(
+                          selectedGiftObj && remaining(selectedGiftObj) <= 0
+                        )
                       }
                       className="px-3 py-2 rounded-md bg-white/10 hover:bg-white/15 border border-white/20 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
                     >
@@ -516,6 +628,7 @@ export default function GachaPage() {
                   </div>
                 </div>
 
+                {/* Preview */}
                 <div className="border-t border-white/10 pt-4">
                   <div className="text-xs uppercase tracking-wider text-white/60 mb-2">
                     Preview
@@ -527,23 +640,36 @@ export default function GachaPage() {
                           <span className="text-white/70">Name:</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="font-medium">{showPreviewName ? preview.name : 'Hidden'}</span>
+                          <span className="font-medium">
+                            {showPreviewName ? preview.name : "Hidden"}
+                          </span>
                           <button
                             onClick={() => setShowPreviewName((v) => !v)}
                             className="px-2 py-0.5 text-xs rounded bg-white/6 border border-white/10"
                           >
-                            {showPreviewName ? 'Hide' : 'Show'}
+                            {showPreviewName ? "Hide" : "Show"}
                           </button>
                         </div>
                       </div>
 
                       <div className="font-mono text-[13px] break-words">
-                        <span className="text-white/70">Code:</span>{' '}
-                        <span className="font-mono">{preview.gacha_code || (splitCode(preview.gacha_code).prefix || 'PPPP2025') + '-**********'}</span>
+                        <span className="text-white/70">Code:</span>{" "}
+                        <span className="font-mono">
+                          {(() => {
+                            const { prefix, suffix } = splitCode(
+                              preview.gacha_code
+                            );
+                            return `${prefix || "********"}-${
+                              suffix ? suffix : "**********"
+                            }`;
+                          })()}
+                        </span>
                       </div>
                     </div>
                   ) : (
-                    <div className="text-xs text-white/60">No winner preview yet.</div>
+                    <div className="text-xs text-white/60">
+                      No winner preview yet.
+                    </div>
                   )}
                 </div>
               </div>
@@ -552,7 +678,7 @@ export default function GachaPage() {
         )}
       </AnimatePresence>
 
-      {/* Main — FULLY CENTERED STAGE */}
+      {/* Main — CENTERED STAGE */}
       <main className="px-4 py-8 min-h-screen flex items-center justify-center">
         <section className="relative rounded-2xl p-0 bg-transparent w-full max-w-4xl">
           {/* Neon grid backdrop */}
@@ -571,6 +697,10 @@ export default function GachaPage() {
                   <div className="text-4xl font-black tracking-tight">
                     Ready to draw
                   </div>
+                  <p className="mt-2 opacity-80">
+                    Open the menu and press{" "}
+                    <span className="font-semibold">Get Winner</span>.
+                  </p>
                 </motion.div>
               ) : (
                 <motion.div
@@ -587,8 +717,15 @@ export default function GachaPage() {
                     {selectedGiftObj?.name}
                   </motion.div>
 
-                  <div className="mt-1 text-lg md:text-2xl font-mono text-emerald-200/90">
-                    {prefix || "PPPP2025"}
+                  {/* PPPP2025-XXXXXXXXXX */}
+                  <div className="mt-1 font-mono text-emerald-200/90">
+                    <span
+                      className={`text-lg md:text-2xl inline-block px-2 ${
+                        isGlitchingPrefix ? "glitching glow" : "glow"
+                      }`}
+                    >
+                      {realPrefix ? prefixDisplay : "********"}
+                    </span>
                     <span className="opacity-40">-</span>
                   </div>
 
@@ -603,13 +740,14 @@ export default function GachaPage() {
                         damping: 20,
                       }}
                       className={`inline-block px-5 py-3 rounded-xl border border-white/20 bg-white/5 font-mono text-4xl md:text-6xl tracking-widest select-none ${
-                        isGlitching ? "glitching glow" : "glow"
+                        isGlitchingSuffix ? "glitching glow" : "glow"
                       }`}
                     >
                       {suffixDisplay}
                     </motion.div>
                   </div>
 
+                  {/* Overlays during reveal */}
                   <AnimatePresence>
                     {stage === "reveal" && !revealDone && (
                       <motion.div
@@ -646,7 +784,6 @@ export default function GachaPage() {
                       </motion.div>
                     )}
                   </AnimatePresence>
-
                 </motion.div>
               )}
             </AnimatePresence>
