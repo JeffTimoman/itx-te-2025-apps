@@ -58,3 +58,34 @@ html, body, #__next {
 .suffix-bright.glitching {
   filter: drop-shadow(0 0 10px rgba(99,102,241,0.75));
 }
+
+/* Improve readability of native select controls and option lists across themes
+   Many selects use translucent white utility classes (bg-white/10) which can
+   make the OS-native dropdown list hard to read on dark backgrounds. Use the
+   site's CSS variables to ensure contrast for select and option elements. */
+select,
+select option,
+select optgroup {
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+}
+
+/* Slightly darker select box to visually separate from the page background */
+select {
+  background-color: rgba(255,255,255,0.03) !important;
+  border-color: rgba(255,255,255,0.12) !important;
+  color: var(--foreground) !important;
+  padding: 0.5rem 0.75rem;
+}
+
+/* Focus ring for keyboard users */
+select:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(99,102,241,0.12);
+}
+
+/* Option hover/selection hint (works in some browsers) */
+option:hover,
+option:checked {
+  background-color: rgba(99,102,241,0.12) !important;
+}
