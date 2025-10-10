@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
-type Winner = { name: string; gacha_code?: string | null };
+type Winner = { name: string; gacha_code?: string | null; is_assigned?: string | null };
 type Row = {
   gift_id: number;
   gift_name: string;
@@ -68,7 +68,7 @@ export default function WinnersPage() {
       const catOk = category === "all" || (r.category_name || "") === category;
       if (!q) return catOk;
       const winnersHay = (r.winners || [])
-        .map((w) => `${w.name}|${w.gacha_code || ""}`)
+        .map((w) => `${w.name}|${w.gacha_code || ""}|${w.is_assigned || "N"}`)
         .join("|")
         .toLowerCase();
       const hay = `${r.gift_name}|${
@@ -105,13 +105,14 @@ export default function WinnersPage() {
         );
       } else {
         r.winners.forEach((w, widx) => {
+          const code = w.is_assigned === 'Y' ? '' : (w.gacha_code || '');
           lines.push(
             [
               idx + 1,
               esc(r.gift_name),
               esc(r.category_name || ""),
               esc(w.name),
-              esc(w.gacha_code || ""),
+              esc(code),
             ].join(",")
           );
         });
@@ -144,7 +145,7 @@ export default function WinnersPage() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-white/10 grid place-content-center text-sm font-bold">
-              GW
+              ITX
             </div>
             <h1 className="text-sm sm:text-base font-semibold">Gift Winners</h1>
           </div>
@@ -259,7 +260,7 @@ export default function WinnersPage() {
                           <span className="opacity-60">—</span>
                         ) : (
                           <ul className="flex flex-wrap gap-1.5">
-                            {r.winners.map((w, i) => (
+                                            {r.winners.map((w, i) => (
                               <li
                                 key={i}
                                 className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-white/10 border border-white/20"
@@ -267,15 +268,15 @@ export default function WinnersPage() {
                                 <span className="text-[13px] font-medium">
                                   {w.name}
                                 </span>
-                                {w.gacha_code && (
-                                  <button
-                                    onClick={() => copy(w.gacha_code!)}
-                                    className="text-[11px] px-1.5 py-0.5 rounded bg-white/10 border border-white/20 hover:bg-white/15"
-                                    title="Copy code"
-                                  >
-                                    {w.gacha_code}
-                                  </button>
-                                )}
+                                                {w.is_assigned !== 'Y' && w.gacha_code && (
+                                                  <button
+                                                    onClick={() => copy(w.gacha_code!)}
+                                                    className="text-[11px] px-1.5 py-0.5 rounded bg-white/10 border border-white/20 hover:bg-white/15"
+                                                    title="Copy code"
+                                                  >
+                                                    {w.gacha_code}
+                                                  </button>
+                                                )}
                               </li>
                             ))}
                           </ul>

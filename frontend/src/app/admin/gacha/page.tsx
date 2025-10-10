@@ -728,8 +728,8 @@ export default function GachaPage() {
                     Ready to draw
                   </div>
                   <p className="mt-2 opacity-80">
-                    Open the menu and press{" "}
-                    <span className="font-semibold">Get Winner</span>.
+                    Prepare your codes to
+                    <span className="font-semibold">Win</span>.
                   </p>
                 </motion.div>
               ) : (
@@ -764,7 +764,7 @@ export default function GachaPage() {
                       key={suffixDisplay}
                       initial={{ opacity: 0, scale: 0.96 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      transition={{
+                      transition={{ 
                         type: "spring",
                         stiffness: 300,
                         damping: 20,

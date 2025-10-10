@@ -867,7 +867,14 @@ app.get('/api/admin/winners', async (req, res) => {
       SELECT g.id AS gift_id,
              g.name AS gift_name,
              gc.name AS category_name,
-             json_agg(json_build_object('name', r.name, 'gacha_code', r.gacha_code) ORDER BY gw.date_awarded) AS winners
+             json_agg(
+               json_build_object(
+                 'name', r.name,
+                 -- only reveal the gacha_code when the winner came from the gacha (is_assigned = 'N')
+                 'gacha_code', CASE WHEN gw.is_assigned = 'N' THEN r.gacha_code ELSE NULL END,
+                 'is_assigned', gw.is_assigned
+               ) ORDER BY gw.date_awarded
+             ) AS winners
       FROM gift_winners gw
       JOIN gift g ON gw.gift_id = g.id
       LEFT JOIN gift_categories gc ON g.gift_category_id = gc.id

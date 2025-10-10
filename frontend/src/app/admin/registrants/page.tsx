@@ -166,7 +166,7 @@ export default function RegistrantsAdminPage() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-white/10 grid place-content-center text-sm font-bold">
-              RG
+              ITX
             </div>
             <h1 className="text-sm sm:text-base font-semibold">Registrants</h1>
           </div>
