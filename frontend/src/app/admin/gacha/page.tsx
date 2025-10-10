@@ -151,29 +151,34 @@ export default function GachaPage() {
   // confetti bound to hostRef so it renders in fullscreen too
   async function ensureConfettiInstance() {
     const confettiMod = await import("canvas-confetti");
-    if (hostRef.current) {
-      confettiInstanceRef.current = confettiMod.create(hostRef.current, {
-        resize: true,
-        useWorker: true,
-      });
-    } else {
-      confettiInstanceRef.current = confettiMod.create(undefined, {
-        resize: true,
-        useWorker: true,
-      });
-    }
+
+    // Prefer the *actual* fullscreen element if present
+    const root =
+      (document.fullscreenElement as HTMLElement | null) ??
+      hostRef.current ??
+      document.body;
+
+    // Recreate every time so the canvas is attached to the correct root
+    confettiInstanceRef.current = confettiMod.create(root, {
+      resize: true,
+      // Workers can be blocked or fail with OffscreenCanvas on some setups
+      useWorker: false,
+    });
   }
+
 
   async function burstConfetti(power: "big" | "small") {
     if (!confettiInstanceRef.current) await ensureConfettiInstance();
     const confetti = confettiInstanceRef.current!;
+
     const base = {
       spread: power === "big" ? 80 : 55,
       startVelocity: power === "big" ? 55 : 35,
       ticks: power === "big" ? 400 : 250,
       gravity: 0.9,
-      zIndex: 9999,
+      zIndex: 2147483647, // make absolutely sure it's on top
     } as const;
+
     const center = { x: 0.5, y: 0.45 };
     confetti({
       ...base,
@@ -191,6 +196,7 @@ export default function GachaPage() {
       origin: { x: 0.8, y: 0.6 },
     });
   }
+
 
   // cleanup timers
   useEffect(() => {
@@ -748,43 +754,6 @@ export default function GachaPage() {
                     </motion.div>
                   </div>
 
-                  {/* Overlays during reveal */}
-                  <AnimatePresence>
-                    {stage === "reveal" && !revealDone && (
-                      <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="pointer-events-none fixed inset-0 flex items-center justify-center"
-                      >
-                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.12),transparent_60%)]" />
-                        <motion.div
-                          initial={{ scale: 0.9 }}
-                          animate={{ scale: 1 }}
-                          transition={{
-                            type: "spring",
-                            stiffness: 200,
-                            damping: 12,
-                          }}
-                          className="px-5 py-2 rounded-xl bg-indigo-500/20 border border-indigo-300/30 text-indigo-100 text-sm uppercase tracking-widest"
-                        >
-                          🎉 Decrypting Winner Code…
-                        </motion.div>
-                      </motion.div>
-                    )}
-                    {stage === "refresh-reveal" && !revealDone && (
-                      <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="pointer-events-none fixed inset-0 flex items-center justify-center"
-                      >
-                        <motion.div className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs text-white/80">
-                          Updating…
-                        </motion.div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
                 </motion.div>
               )}
             </AnimatePresence>
