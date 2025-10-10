@@ -769,7 +769,7 @@ export default function GachaPage() {
                         stiffness: 300,
                         damping: 20,
                       }}
-                      className={`inline-block px-5 py-3 rounded-xl border border-white/20 bg-white/5 font-mono text-4xl md:text-6xl tracking-widest select-none ${
+                      className={`inline-block px-6 py-4 rounded-2xl border border-white/30 bg-white/10 font-mono text-4xl md:text-6xl tracking-widest select-none text-emerald-50 shadow-xl ${
                         isGlitchingSuffix ? "glitching glow" : "glow"
                       }`}
                     >
