@@ -1,7 +1,10 @@
 declare module 'canvas-confetti' {
-  // Minimal typing: the package exports a default function that accepts options
-  type Origin = { x?: number; y?: number };
-  type ConfettiOptions = {
+  // Minimal runtime-friendly typings for canvas-confetti used in this project.
+  // Keep types conservative and avoid `any` to satisfy lint rules.
+
+  export type Origin = { x?: number; y?: number };
+
+  export type ConfettiOptions = {
     particleCount?: number;
     angle?: number;
     spread?: number;
@@ -16,11 +19,17 @@ declare module 'canvas-confetti' {
     height?: number;
     colors?: string[];
     zIndex?: number;
-  } & Record<string, any>;
+  } & Record<string, unknown>;
 
-  function confetti(options?: ConfettiOptions): void;
+  export type ConfettiFn = (opts?: Record<string, unknown>) => void;
 
-  namespace confetti {}
-
+  // Default export: top-level confetti invoker
+  const confetti: ConfettiFn;
   export default confetti;
+
+  // create: bind a confetti instance to a specific element/canvas
+  export function create(
+    container?: Element | HTMLCanvasElement | undefined,
+    opts?: { resize?: boolean; useWorker?: boolean } & Record<string, unknown>
+  ): ConfettiFn;
 }
