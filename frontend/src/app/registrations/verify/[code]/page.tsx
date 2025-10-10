@@ -116,7 +116,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
         setManualId("");
         setRegistrants([]);
         setStatus(`Verified for ${display}. Redirecting…`);
-        setTimeout(() => router.push("/"), 2200);
+        setTimeout(() => router.push("/registrations/verify/finish"), 2200);
       }
     } catch {
       setStatus("Network error");
