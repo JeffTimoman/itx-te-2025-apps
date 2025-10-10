@@ -27,10 +27,10 @@ type GiftAvail = {
 
 type PreviewWinner = { id: number; name: string; gacha_code?: string | null };
 
-const GLITCH_MS_FIRST = 12000; // ~15s for "Get Winner"
+const GLITCH_MS_FIRST = 8000; // ~15s for "Get Winner"
 const GLITCH_MS_REFRESH = 2000; // short for "Refresh Winner"
-const DECODE_MS_FIRST = 1440; // decode time after long glitch
-const DECODE_MS_REFRESH = 900;
+const DECODE_MS_FIRST = 1200; // decode time after long glitch
+const DECODE_MS_REFRESH = 400;
 const SUFFIX_LEN = 10;
 
 export default function GachaPage() {
@@ -48,6 +48,7 @@ export default function GachaPage() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [revealDone, setRevealDone] = useState(false); // controls when to re-show settings
   const [isMenuOpen, setIsMenuOpen] = useState(false); // slide-in menu toggle
+  const [showPreviewName, setShowPreviewName] = useState(false);
 
   // code animation
   const [suffixDisplay, setSuffixDisplay] = useState<string>("**********");
@@ -339,10 +340,10 @@ export default function GachaPage() {
           <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-xl bg-white/10 grid place-content-center text-sm font-bold">
-                GA
+                ITX
               </div>
               <h1 className="text-sm sm:text-base font-semibold">
-                Gacha • Award Gifts
+                {"Let's become a winner!"}
               </h1>
             </div>
             <div className="flex items-center gap-2">
@@ -492,7 +493,7 @@ export default function GachaPage() {
                       }
                       className="px-3 py-2 rounded-md bg-indigo-500/90 hover:bg-indigo-500 border border-indigo-300/30 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      Get Winner (Long Glitch)
+                      Get Winner
                     </button>
                     <button
                       onClick={() => pickRandom(false)}
@@ -503,7 +504,7 @@ export default function GachaPage() {
                       }
                       className="px-3 py-2 rounded-md bg-white/10 hover:bg-white/15 border border-white/20 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
                     >
-                      Refresh Winner (Short)
+                      Refresh Winner
                     </button>
                     <button
                       onClick={saveWinner}
@@ -513,12 +514,6 @@ export default function GachaPage() {
                       Save Winner
                     </button>
                   </div>
-                  <div className="text-[11px] text-white/60 mt-2">
-                    • “Get Winner” starts a long glitch + decode.
-                    <br />
-                    • “Refresh” draws again with a short decode.
-                    <br />• “Save Winner” commits the current preview.
-                  </div>
                 </div>
 
                 <div className="border-t border-white/10 pt-4">
@@ -526,21 +521,29 @@ export default function GachaPage() {
                     Preview
                   </div>
                   {preview ? (
-                    <div className="text-xs space-y-1">
-                      <div>
-                        <span className="text-white/70">Name:</span>{" "}
-                        <span className="font-medium">{preview.name}</span>
+                    <div className="text-xs space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-white/70">Name:</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{showPreviewName ? preview.name : 'Hidden'}</span>
+                          <button
+                            onClick={() => setShowPreviewName((v) => !v)}
+                            className="px-2 py-0.5 text-xs rounded bg-white/6 border border-white/10"
+                          >
+                            {showPreviewName ? 'Hide' : 'Show'}
+                          </button>
+                        </div>
                       </div>
-                      <div className="font-mono">
-                        <span className="text-white/70">Code:</span>{" "}
-                        {splitCode(preview.gacha_code).prefix || "PPPP2025"}-
-                        <span className="opacity-60">**********</span>
+
+                      <div className="font-mono text-[13px] break-words">
+                        <span className="text-white/70">Code:</span>{' '}
+                        <span className="font-mono">{preview.gacha_code || (splitCode(preview.gacha_code).prefix || 'PPPP2025') + '-**********'}</span>
                       </div>
                     </div>
                   ) : (
-                    <div className="text-xs text-white/60">
-                      No winner preview yet.
-                    </div>
+                    <div className="text-xs text-white/60">No winner preview yet.</div>
                   )}
                 </div>
               </div>
@@ -568,10 +571,6 @@ export default function GachaPage() {
                   <div className="text-4xl font-black tracking-tight">
                     Ready to draw
                   </div>
-                  <p className="mt-2 opacity-80">
-                    Open the menu and press{" "}
-                    <span className="font-semibold">Get Winner</span>.
-                  </p>
                 </motion.div>
               ) : (
                 <motion.div
@@ -648,11 +647,6 @@ export default function GachaPage() {
                     )}
                   </AnimatePresence>
 
-                  <div className="mt-4 text-xs text-slate-300/80">
-                    Winner identity is hidden. Open the menu to{" "}
-                    <span className="font-semibold">Save Winner</span> or{" "}
-                    <span className="font-semibold">Refresh Winner</span>.
-                  </div>
                 </motion.div>
               )}
             </AnimatePresence>

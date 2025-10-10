@@ -186,7 +186,7 @@ export default function GiftsAdmin() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-white/10 grid place-content-center text-sm font-bold">
-              GF
+              ITX
             </div>
             <h1 className="text-sm sm:text-base font-semibold">Gifts</h1>
           </div>
@@ -282,7 +282,7 @@ export default function GiftsAdmin() {
               <input
                 id="g-qty"
                 type="number"
-                min={0}
+                min={1}
                 value={quantity}
                 onChange={(e) => setQuantity(Number(e.target.value))}
                 placeholder="0"
