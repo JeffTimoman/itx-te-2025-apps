@@ -221,6 +221,11 @@ export default function GachaPage() {
     return () => {
       if (prefixTimer.current) window.clearTimeout(prefixTimer.current);
       if (suffixTimer.current) window.clearTimeout(suffixTimer.current);
+      if (confettiCanvasRef.current?.parentNode) {
+        confettiCanvasRef.current.parentNode.removeChild(
+          confettiCanvasRef.current
+        );
+      }
     };
   }, []);
 
@@ -737,7 +742,7 @@ export default function GachaPage() {
                 >
                   <motion.div
                     layout
-                    className="text-sm uppercase tracking-widest text-indigo-200/80 mb-4"
+                    className="text-lg md:text-2xl font-bold uppercase tracking-widest text-indigo-100 drop-shadow mb-4"
                   >
                     {selectedGiftObj?.name}
                   </motion.div>

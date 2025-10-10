@@ -45,3 +45,16 @@ html, body, #__next {
   scrollbar-width: none; /* hide scrollbar */
   -ms-overflow-style: none; /* IE 10+ */
 }
+
+.suffix-bright {
+  color: rgba(255,255,255,0.98);
+  text-shadow:
+    0 0 26px rgba(99,102,241,0.65),
+    0 0 12px rgba(16,185,129,0.55),
+    0 0 2px rgba(255,255,255,0.85);
+}
+
+/* give extra pop while glitching */
+.suffix-bright.glitching {
+  filter: drop-shadow(0 0 10px rgba(99,102,241,0.75));
+}
