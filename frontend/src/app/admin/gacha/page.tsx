@@ -488,7 +488,7 @@ export default function GachaPage() {
                       disabled={
                         loading ||
                         !selectedGift ||
-                        (selectedGiftObj && remaining(selectedGiftObj) <= 0)
+                        Boolean(selectedGiftObj && remaining(selectedGiftObj) <= 0)
                       }
                       className="px-3 py-2 rounded-md bg-indigo-500/90 hover:bg-indigo-500 border border-indigo-300/30 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
                     >
@@ -499,7 +499,7 @@ export default function GachaPage() {
                       disabled={
                         loading ||
                         !selectedGift ||
-                        (selectedGiftObj && remaining(selectedGiftObj) <= 0)
+                        Boolean(selectedGiftObj && remaining(selectedGiftObj) <= 0)
                       }
                       className="px-3 py-2 rounded-md bg-white/10 hover:bg-white/15 border border-white/20 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
                     >
