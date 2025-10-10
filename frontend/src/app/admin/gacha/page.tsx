@@ -47,13 +47,14 @@ export default function GachaPage() {
   >("idle");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [revealDone, setRevealDone] = useState(false); // controls when to re-show settings
-  const [isMenuOpen, setIsMenuOpen] = useState(false); // NEW: slide-in menu toggle
+  const [isMenuOpen, setIsMenuOpen] = useState(false); // slide-in menu toggle
 
   // code animation
   const [suffixDisplay, setSuffixDisplay] = useState<string>("**********");
   const [isGlitching, setIsGlitching] = useState(false);
   const scrambleTimer = useRef<number | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const menuFirstButtonRef = useRef<HTMLButtonElement | null>(null);
 
   // derived
   const selectedGiftObj = useMemo(
@@ -82,12 +83,16 @@ export default function GachaPage() {
       if (!res.ok) throw await res.json();
       const data = await res.json();
       setGifts(data || []);
+      // auto-select first gift if nothing is selected
+      if (!selectedGift && data?.length) {
+        setSelectedGift(data[0].id);
+      }
     } catch (e) {
       setError(toMsg(e));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedGift]);
 
   useEffect(() => {
     load();
@@ -228,7 +233,7 @@ export default function GachaPage() {
     setStage("drawing");
     setRevealDone(false);
     setIsGlitching(true);
-    setIsMenuOpen(false); // NEW: auto-hide the menu on start
+    setIsMenuOpen(false); // auto-hide the menu on start
 
     try {
       const res = await fetch(
@@ -283,10 +288,26 @@ export default function GachaPage() {
     }
   }
 
+  // accessibility niceties: Esc closes menu & focus first button when opened
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsMenuOpen(false);
+    };
+    if (isMenuOpen) {
+      document.addEventListener("keydown", onKey);
+      // nudge focus into the panel for keyboard users
+      setTimeout(() => menuFirstButtonRef.current?.focus(), 0);
+    }
+    return () => document.removeEventListener("keydown", onKey);
+  }, [isMenuOpen]);
+
   const cyberBg =
     "bg-[radial-gradient(1000px_600px_at_50%_-10%,rgba(99,102,241,0.25),transparent),radial-gradient(800px_400px_at_30%_120%,rgba(16,185,129,0.18),transparent)]";
 
   const { prefix } = splitCode(preview?.gacha_code); // PPPP2025
+
+  const remaining = (g: GiftAvail) =>
+    Math.max(0, (g.quantity ?? 0) - (g.awarded ?? 0));
 
   return (
     <div
@@ -357,7 +378,7 @@ export default function GachaPage() {
         </button>
       )}
 
-      {/* Slide-in Menu (backdrop + panel) — stronger z-index and explicit keys to avoid animation conflicts */}
+      {/* Slide-in Menu (backdrop + panel) */}
       <AnimatePresence>
         {isMenuOpen && (
           <>
@@ -369,6 +390,7 @@ export default function GachaPage() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className="fixed inset-0 z-[9998] bg-black/40"
+              aria-hidden="true"
             />
             {/* Panel */}
             <motion.aside
@@ -378,8 +400,150 @@ export default function GachaPage() {
               exit={{ x: -320, opacity: 0 }}
               transition={{ type: "spring", stiffness: 260, damping: 24 }}
               className="fixed left-0 top-0 bottom-0 z-[9999] w-[320px] max-w-[85vw] bg-slate-900/90 border-r border-white/10 backdrop-blur-xl p-6 overflow-y-auto"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Gacha Controls"
             >
-              {/* ...controls content stays the same */}
+              {/* Controls CONTENT (previously missing) */}
+              <div className="space-y-5">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold text-white/90">
+                    Controls
+                  </h2>
+                  <button
+                    ref={menuFirstButtonRef}
+                    onClick={() => setIsMenuOpen(false)}
+                    className="px-2.5 py-1 rounded-md bg-white/10 border border-white/20 text-xs hover:bg-white/15"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                {error && (
+                  <div className="text-xs rounded-md border border-red-400/30 bg-red-500/10 text-red-200 p-2">
+                    {error}
+                  </div>
+                )}
+
+                <div>
+                  <div className="text-xs uppercase tracking-wider text-white/60 mb-2">
+                    Gift
+                  </div>
+                  <div className="space-y-2 max-h-56 overflow-auto pr-1">
+                    {loading && (
+                      <div className="text-xs text-white/70">Loading…</div>
+                    )}
+                    {!loading && gifts.length === 0 && (
+                      <div className="text-xs text-white/60">
+                        No gifts available.
+                      </div>
+                    )}
+                    {gifts.map((g) => {
+                      const rem = remaining(g);
+                      const disabled = rem <= 0;
+                      return (
+                        <label
+                          key={g.id}
+                          className={`flex items-center justify-between gap-2 rounded-md border p-2 text-xs ${
+                            selectedGift === g.id
+                              ? "border-indigo-400/50 bg-indigo-400/10"
+                              : "border-white/10 bg-white/5 hover:bg-white/8"
+                          } ${disabled ? "opacity-60" : ""}`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="radio"
+                              name="gift"
+                              value={g.id}
+                              checked={selectedGift === g.id}
+                              onChange={() => setSelectedGift(g.id)}
+                              disabled={disabled}
+                            />
+                            <div className="font-medium">{g.name}</div>
+                          </div>
+                          <div className="tabular-nums text-white/70">
+                            {g.awarded}/{g.quantity}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-2">
+                    <button
+                      onClick={load}
+                      className="text-xs px-2.5 py-1 rounded-md border border-white/20 bg-white/10 hover:bg-white/15"
+                    >
+                      Reload Gifts
+                    </button>
+                  </div>
+                </div>
+
+                <div className="border-t border-white/10 pt-4">
+                  <div className="text-xs uppercase tracking-wider text-white/60 mb-2">
+                    Actions
+                  </div>
+                  <div className="grid grid-cols-1 gap-2">
+                    <button
+                      onClick={() => pickRandom(true)}
+                      disabled={
+                        loading ||
+                        !selectedGift ||
+                        (selectedGiftObj && remaining(selectedGiftObj) <= 0)
+                      }
+                      className="px-3 py-2 rounded-md bg-indigo-500/90 hover:bg-indigo-500 border border-indigo-300/30 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Get Winner (Long Glitch)
+                    </button>
+                    <button
+                      onClick={() => pickRandom(false)}
+                      disabled={
+                        loading ||
+                        !selectedGift ||
+                        (selectedGiftObj && remaining(selectedGiftObj) <= 0)
+                      }
+                      className="px-3 py-2 rounded-md bg-white/10 hover:bg-white/15 border border-white/20 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Refresh Winner (Short)
+                    </button>
+                    <button
+                      onClick={saveWinner}
+                      disabled={loading || !preview || !selectedGift}
+                      className="px-3 py-2 rounded-md bg-emerald-500/90 hover:bg-emerald-500 border border-emerald-300/30 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Save Winner
+                    </button>
+                  </div>
+                  <div className="text-[11px] text-white/60 mt-2">
+                    • “Get Winner” starts a long glitch + decode.
+                    <br />
+                    • “Refresh” draws again with a short decode.
+                    <br />• “Save Winner” commits the current preview.
+                  </div>
+                </div>
+
+                <div className="border-t border-white/10 pt-4">
+                  <div className="text-xs uppercase tracking-wider text-white/60 mb-2">
+                    Preview
+                  </div>
+                  {preview ? (
+                    <div className="text-xs space-y-1">
+                      <div>
+                        <span className="text-white/70">Name:</span>{" "}
+                        <span className="font-medium">{preview.name}</span>
+                      </div>
+                      <div className="font-mono">
+                        <span className="text-white/70">Code:</span>{" "}
+                        {splitCode(preview.gacha_code).prefix || "PPPP2025"}-
+                        <span className="opacity-60">**********</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-white/60">
+                      No winner preview yet.
+                    </div>
+                  )}
+                </div>
+              </div>
             </motion.aside>
           </>
         )}
