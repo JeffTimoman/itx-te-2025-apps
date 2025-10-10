@@ -1026,12 +1026,7 @@ app.post('/api/admin/gifts/:id/assign', async (req, res) => {
       return res.status(404).json({ error: 'Registrant not found' });
     }
 
-    // prevent duplicate assignment for same registrant+gift
-    const dup = await client.query('SELECT id FROM gift_winners WHERE gift_id = $1 AND registrant_id = $2', [giftId, registrant_id]);
-    if (dup.rows.length > 0) {
-      await client.query('ROLLBACK');
-      return res.status(409).json({ error: 'This registrant already has this gift' });
-    }
+    // allow multiple assignments of the same gift to the same registrant (no unique constraint)
 
     const insertSql = `INSERT INTO gift_winners (registrant_id, gift_id, is_assigned) VALUES ($1, $2, 'Y') RETURNING id, registrant_id, gift_id, date_awarded, is_assigned`;
     const ir = await client.query(insertSql, [registrant_id, giftId]);
