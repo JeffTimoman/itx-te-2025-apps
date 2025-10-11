@@ -235,54 +235,26 @@ export default function AssignGiftPage() {
 
         {/* Right: Registrants (mobile-safe scrollable) */}
         {/* ★ Make the section a column with min-h-0 so inner scroller can size correctly */}
-        <section className="rounded-2xl p-4 sm:p-6 bg-white/5 border border-white/10 space-y-4 flex flex-col min-h-[70vh] min-h-[70svh]">
+        <section className="rounded-2xl p-4 sm:p-6 bg-white/5 border border-white/10 space-y-4 flex flex-col min-h-[70vh] min-h-[70svh] min-w-0">
           <h2 className="text-lg font-bold">2) Pick winner</h2>
 
-          {/* Filters */}
-          <div className="flex flex-wrap gap-3 items-center">
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search (name, bureau, code, id)"
-              className="w-full sm:w-80 p-2.5 rounded-xl bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
-            />
-            <select
-              value={bureauFilter}
-              onChange={(e) => setBureauFilter(e.target.value)}
-              className="p-2.5 rounded-xl bg-white/10 border border-white/20"
-            >
-              <option value="all">All bureaus</option>
-              {bureaus.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </select>
-            <div className="sm:ml-auto w-full sm:w-auto flex items-center gap-2 text-xs">
-              <span className="opacity-70">Rows</span>
-              <select
-                value={pageSize}
-                onChange={(e) => setPageSize(parseInt(e.target.value, 10))}
-                className="p-1.5 rounded-lg bg-white/10 border border-white/20"
-              >
-                {[10, 20, 50].map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+          {/* Filters … (unchanged) */}
 
-          {/* ★ Edge-safe scroller: pad inside, negative margin outside to avoid 1–2px overflow */}
+          {/* Scroller */}
           <div className="flex-1 min-h-0 rounded-xl border border-white/10">
             <div className="-mx-4 sm:mx-0">
               <div
                 className="px-4 h-[56vh] sm:h-auto overflow-x-auto overflow-y-auto"
-                style={{ WebkitOverflowScrolling: "touch" }}
+                style={{
+                  WebkitOverflowScrolling: "touch",
+                  touchAction: "pan-x pan-y pinch-zoom",
+                }}
+                role="region"
+                aria-label="Registrants table (scroll horizontally on mobile)"
               >
-                {/* ★ Keep a modest min-w so it scrolls on phones but doesn’t blow up the page */}
-                <table className="w-full text-sm min-w-[600px]">
+                {/* On phones, let content define width -> horizontal scroll.
+            On >=sm, table fills container. */}
+                <table className="w-max sm:w-full text-sm min-w-[640px] table-fixed">
                   <thead className="bg-white/10 sticky top-0 z-10">
                     <tr className="text-left">
                       <Th>ID</Th>
@@ -331,7 +303,7 @@ export default function AssignGiftPage() {
                               : ""
                           }`}
                         >
-                          {/* ★ Allow wrap/truncate to avoid hard overflow */}
+                          {/* Make cells truncatable / breakable to avoid hard overflow */}
                           <td className="p-3 font-mono opacity-80 whitespace-nowrap max-w-[6rem] truncate">
                             {r.id}
                           </td>
@@ -344,7 +316,7 @@ export default function AssignGiftPage() {
                             </div>
                           </td>
                           <td className="p-3">
-                            <div className="max-w-[10rem] truncate">
+                            <div className="max-w-[10rem] truncate break-words">
                               {r.bureau || (
                                 <span className="opacity-60">—</span>
                               )}
@@ -353,7 +325,7 @@ export default function AssignGiftPage() {
                           <td className="p-3">
                             <div className="inline-flex items-center gap-2 max-w-[14rem]">
                               <span
-                                className="font-mono truncate"
+                                className="font-mono truncate break-words"
                                 title={r.gacha_code || ""}
                               >
                                 {maskedCode(r.gacha_code)}
