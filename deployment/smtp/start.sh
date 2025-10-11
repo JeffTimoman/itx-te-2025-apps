@@ -46,8 +46,17 @@ chown -R postfix:postfix /var/spool/postfix /var/lib/postfix || true
 chmod -R 700 /var/spool/postfix || true
 
 # Start syslog daemon so Postfix has a place to write mail.log
-echo "Starting rsyslog..."
-service rsyslog start || true
+echo "Starting rsyslog (rsyslogd) if available..."
+# Ensure mail.log exists so tail won't fail if rsyslogd hasn't created it yet
+touch /var/log/mail.log || true
+chmod 644 /var/log/mail.log || true
+if command -v rsyslogd >/dev/null 2>&1; then
+  # Start rsyslog daemon in the background (non-blocking)
+  rsyslogd || true
+  echo "rsyslogd started"
+else
+  echo "rsyslogd not found; syslog output may not be available inside container"
+fi
 
 # Try to start postfix; on failure dump logs for debugging and keep the container alive
 if ! service postfix start; then
