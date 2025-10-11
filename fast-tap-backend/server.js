@@ -14,6 +14,8 @@ let pgPool = null;
 
 // QR generator
 const QRCode = require('qrcode');
+const nodemailer = require('nodemailer');
+const bwipjs = require('bwip-js');
 
 // Try to initialize Postgres pool with retries. If Postgres is not yet ready
 // at container startup, this will keep attempting so the backend can recover
@@ -359,6 +361,15 @@ app.post('/api/registrations/verify', async (req, res) => {
 
       await client.query('COMMIT');
       res.json({ success: true, registrant_id: targetRegistrantId });
+
+      // Send verification email asynchronously (don't block response)
+      (async () => {
+        try {
+          await sendVerificationEmail(targetRegistrantId);
+        } catch (err) {
+          console.error('Failed to send verification email:', err && err.message);
+        }
+      })();
     } catch (e) {
       await client.query('ROLLBACK');
       throw e;
@@ -1046,5 +1057,119 @@ app.post('/api/admin/gifts/:id/assign', async (req, res) => {
     res.status(500).json({ error: 'Failed to assign gift' });
   } finally {
     client.release();
+  }
+});
+
+// Helper: send verification email with gacha_code and barcode image
+async function sendVerificationEmail(registrantId) {
+  if (!pgPool) throw new Error('Postgres not configured');
+  try {
+    const r = await pgPool.query('SELECT id, name, email, bureau, gacha_code FROM registrants WHERE id = $1', [registrantId]);
+    if (r.rows.length === 0) throw new Error('Registrant not found');
+    const registrant = r.rows[0];
+    if (!registrant.email) {
+      console.log('Registrant has no email, skipping send for id', registrantId);
+      // write a log entry indicating no email
+      try {
+        await pgPool.query('INSERT INTO email_logs (registrant_id, to_email, subject, body, success, error) VALUES ($1,$2,$3,$4,$5,$6)', [registrantId, '', 'verification email', '', 'N', 'no email on registrant']);
+      } catch (e) {
+        console.warn('Failed to write email_logs for missing email', e && e.message);
+      }
+      return { ok: false, error: 'no email' };
+    }
+
+    const smtpHost = process.env.SMTP_HOST || 'smtp-send-only';
+    const smtpPort = parseInt(process.env.SMTP_PORT || '25', 10);
+    const smtpUser = process.env.SMTP_USER || '';
+    const smtpPass = process.env.SMTP_PASS || '';
+    const smtpFrom = process.env.SMTP_FROM || `no-reply@${process.env.POSTFIX_MYDOMAIN || 'te-itx-2025.site'}`;
+
+    // Prepare barcode (Code128) as PNG buffer using bwip-js
+    let barcodePng = null;
+    try {
+      barcodePng = await bwipjs.toBuffer({
+        bcid:        'code128',       // Barcode type
+        text:        registrant.gacha_code || '',
+        scale:       3,
+        height:      10,
+        includetext: false,
+        backgroundcolor: 'FFFFFF',
+      });
+    } catch (err) {
+      console.warn('Failed to generate barcode image:', err && err.message);
+      barcodePng = null;
+    }
+
+    // Create transporter
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465, // true for 465, false for others
+      auth: smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined,
+      tls: { rejectUnauthorized: false },
+    });
+
+    const to = registrant.email;
+    const subject = 'Verification successful — your gacha code';
+    const text = `Thank you for verifying, ${registrant.name} - ${registrant.bureau || ''}\n\nYour gacha code: ${registrant.gacha_code || ''}\n\nGood luck!`;
+
+    const html = `
+      <p>Thank you for verifying, <strong>${registrant.name} - ${registrant.bureau || ''}</strong>.</p>
+      <p>Your gacha code: <strong style="font-family:monospace">${registrant.gacha_code || ''}</strong></p>
+      ${barcodePng ? '<p><img src="cid:gcodeimg" alt="gacha barcode" /></p>' : ''}
+      <p>Good luck on winning!</p>
+    `;
+
+    const mailOptions = {
+      from: smtpFrom,
+      to,
+      subject,
+      text,
+      html,
+      attachments: [],
+    };
+    if (barcodePng) {
+      mailOptions.attachments.push({ filename: 'gcode.png', content: barcodePng, cid: 'gcodeimg' });
+    }
+
+    // Attempt to send
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Sent verification email to', to);
+
+    // record success in email_logs and mark registrant as sent
+    try {
+      await pgPool.query('INSERT INTO email_logs (registrant_id, to_email, subject, body, success) VALUES ($1,$2,$3,$4,$5)', [registrantId, to, subject, html, 'Y']);
+      await pgPool.query('UPDATE registrants SET is_send_email = $1 WHERE id = $2', ['Y', registrantId]);
+    } catch (e) {
+      console.warn('Failed to write email_logs or update registrant after send', e && e.message);
+    }
+
+    return { ok: true, info };
+  } catch (err) {
+    console.error('sendVerificationEmail error:', err && err.message);
+    // log failure
+    try {
+      const r2 = await pgPool.query('SELECT email FROM registrants WHERE id = $1', [registrantId]);
+      const toEmail = (r2.rows[0] && r2.rows[0].email) || '';
+      await pgPool.query('INSERT INTO email_logs (registrant_id, to_email, subject, body, success, error) VALUES ($1,$2,$3,$4,$5,$6)', [registrantId, toEmail, 'verification email', '', 'N', String(err && err.message ? err.message : err)]);
+    } catch (e) {
+      console.warn('Failed to write email_logs after send error', e && e.message);
+    }
+    return { ok: false, error: err && err.message ? err.message : String(err) };
+  }
+}
+
+// Endpoint: resend verification email for a registrant (admin-only). Triggers sendVerificationEmail and returns logged result.
+app.post('/api/admin/registrants/:id/resend-email', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  const id = parseInt(req.params.id, 10);
+  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid registrant id' });
+  try {
+    const result = await sendVerificationEmail(id);
+    if (result && result.ok) return res.json({ ok: true });
+    return res.status(500).json({ ok: false, error: result && result.error ? result.error : 'failed to send' });
+  } catch (err) {
+    console.error('resend-email endpoint error', err && err.message);
+    res.status(500).json({ error: 'Failed to resend email' });
   }
 });

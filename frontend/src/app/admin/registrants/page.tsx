@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import api, { Registrant } from "../../../lib/api/registrants";
+import api, { Registrant, resendVerificationEmail } from "../../../lib/api/registrants";
 
 /**
  * RegistrantsAdminPage — polished CRUD dashboard (read + create)
@@ -313,6 +313,7 @@ export default function RegistrantsAdminPage() {
                   <Th>Gifts</Th>
                   <Th>Code</Th>
                   <Th>Email</Th>
+                  <Th>Emailed</Th>
                   <Th>Bureau</Th>
                   <Th>Verified</Th>
                   <Th>Win</Th>
@@ -368,6 +369,15 @@ export default function RegistrantsAdminPage() {
                       </td>
                       <td className="p-3 min-w-[14rem]">
                         {r.email || <span className="opacity-60">—</span>}
+                      </td>
+                      <td className="p-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <Chip ok={r.is_send_email === 'Y'} okText="Sent" noText="Not sent" />
+                          <ResendButton id={r.id} onSent={() => {
+                            // update local state to reflect sent status
+                            setRegistrants((arr) => arr.map((x) => (x.id === r.id ? { ...x, is_send_email: 'Y' } : x)));
+                          }} />
+                        </div>
                       </td>
                       <td className="p-3 whitespace-nowrap">
                         {r.bureau || <span className="opacity-60">—</span>}
@@ -463,5 +473,34 @@ function Chip({
     >
       {ok ? okText : noText}
     </span>
+  );
+}
+
+function ResendButton({ id, onSent }: { id: number; onSent?: () => void }) {
+  const [loading, setLoading] = React.useState(false);
+  async function handle() {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const res = await resendVerificationEmail(id);
+      if (res && res.ok) {
+        if (onSent) onSent();
+      } else {
+        alert('Failed to resend email');
+      }
+    } catch (err) {
+      alert('Failed to resend email: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setLoading(false);
+    }
+  }
+  return (
+    <button
+      onClick={handle}
+      disabled={loading}
+      className="text-[11px] px-2 py-0.5 rounded bg-white/10 border border-white/20 hover:bg-white/15"
+    >
+      {loading ? 'Sending…' : 'Resend'}
+    </button>
   );
 }

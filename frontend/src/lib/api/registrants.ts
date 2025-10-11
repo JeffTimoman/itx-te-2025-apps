@@ -42,5 +42,12 @@ export async function updateRegistrant(id: number, patch: Partial<Registrant>): 
   });
 }
 
+export async function resendVerificationEmail(id: number): Promise<{ ok: boolean }> {
+  return fetchJson<{ ok: boolean }>(`${BASE}/api/admin/registrants/${id}/resend-email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
 const api = { listRegistrants, createRegistrant, updateRegistrant };
 export default api;

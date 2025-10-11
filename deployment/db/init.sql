@@ -49,3 +49,16 @@ CREATE TABLE IF NOT EXISTS gift_winners(
   date_awarded TIMESTAMPTZ NOT NULL DEFAULT now(),
   is_assigned CHAR(1) NOT NULL DEFAULT 'N'
 );
+
+-- Email send logs for verification/gacha emails. Records both successes and failures so
+-- the operator can inspect delivery attempts and errors.
+CREATE TABLE IF NOT EXISTS email_logs(
+  id SERIAL PRIMARY KEY,
+  registrant_id INTEGER REFERENCES registrants(id) ON DELETE CASCADE,
+  to_email TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  body TEXT NULL,
+  sent_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  success CHAR(1) NOT NULL DEFAULT 'N',
+  error TEXT NULL
+);
