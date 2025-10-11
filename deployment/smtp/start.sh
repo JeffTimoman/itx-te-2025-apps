@@ -1,92 +1,83 @@
 #!/bin/sh
-set -euo pipefail
+set -e
 
-# --- Config (env with sensible defaults) ---
-POSTFIX_MYDOMAIN="${POSTFIX_MYDOMAIN:-te-itx-2025.site}"
+# Simple entrypoint to configure postfix as a send-only relay
 
-# If you have a different Docker network, override this:
-# e.g. POSTFIX_MYNETWORKS="127.0.0.0/8 [::1]/128 172.19.0.0/16"
-POSTFIX_MYNETWORKS="${POSTFIX_MYNETWORKS:-127.0.0.0/8 [::1]/128 172.18.0.0/16}"
+POSTFIX_MYDOMAIN=${POSTFIX_MYDOMAIN:-te-itx-2025.site}
+RELAY_HOST=${RELAY_HOST:-}
+RELAY_PORT=${RELAY_PORT:-587}
+RELAY_USER=${RELAY_USER:-}
+RELAY_PASS=${RELAY_PASS:-}
 
-# Optional smarthost relay (leave RELAY_HOST empty for direct delivery)
-RELAY_HOST="${RELAY_HOST:-}"
-RELAY_PORT="${RELAY_PORT:-587}"
-RELAY_USER="${RELAY_USER:-}"
-RELAY_PASS="${RELAY_PASS:-}"
+echo "Configuring Postfix as send-only for domain: ${POSTFIX_MYDOMAIN}"
 
-echo "Configuring Postfix send-only for domain: ${POSTFIX_MYDOMAIN}"
-
-# --- Minimal dirs; do NOT mass-chown Postfix chroot ---
-mkdir -p /var/spool/postfix /var/lib/postfix /var/log
-touch /var/log/mail.log || true
-chmod 0644 /var/log/mail.log || true
-
-# --- Base identity / network / policy ---
-postconf -e "compatibility_level = 3.6"
+# Basic main.cf overrides
 postconf -e "myhostname = ${POSTFIX_MYDOMAIN}"
 postconf -e "myorigin = ${POSTFIX_MYDOMAIN}"
+## In Docker we want Postfix to bind to the container network interface (not only loopback)
+## so other containers can connect to it via the compose network. Binding only to
+## loopback prevents remote containers from reaching port 25 and causes ECONNREFUSED.
 postconf -e "inet_interfaces = all"
 postconf -e "mydestination ="
-postconf -e "mynetworks = ${POSTFIX_MYNETWORKS}"
-
-# Allow our own network to relay, block others
-postconf -e "smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination"
-
-# TLS (inbound/outbound) kept permissive for send-only
-postconf -e "smtpd_tls_security_level = may"
+postconf -e "relayhost = ${RELAY_HOST:+[${RELAY_HOST}]:}${RELAY_PORT}"
 postconf -e "smtp_tls_security_level = may"
 postconf -e "smtp_use_tls = yes"
 postconf -e "smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt"
 
-# --- relayhost (only when set) ---
-if [ -n "${RELAY_HOST}" ]; then
-  echo "Using authenticated relay: ${RELAY_HOST}:${RELAY_PORT}"
-  postconf -e "relayhost = [${RELAY_HOST}]:${RELAY_PORT}"
-
-  # SASL auth for outbound to the relay
-  echo "[${RELAY_HOST}]:${RELAY_PORT} ${RELAY_USER}:${RELAY_PASS}" > /etc/postfix/sasl_passwd
-  postmap hash:/etc/postfix/sasl_passwd
-  chmod 0600 /etc/postfix/sasl_passwd /etc/postfix/sasl_passwd.db
-
+if [ -n "${RELAY_USER}" ] && [ -n "${RELAY_PASS}" ] && [ -n "${RELAY_HOST}" ]; then
+  echo "Configuring authenticated relay to ${RELAY_HOST}:${RELAY_PORT}"
+  echo "${RELAY_HOST}:${RELAY_PORT} ${RELAY_USER}:${RELAY_PASS}" > /etc/postfix/sasl_passwd
+  postmap /etc/postfix/sasl_passwd
+  chmod 600 /etc/postfix/sasl_passwd /etc/postfix/sasl_passwd.db
   postconf -e "smtp_sasl_auth_enable = yes"
   postconf -e "smtp_sasl_password_maps = hash:/etc/postfix/sasl_passwd"
   postconf -e "smtp_sasl_security_options = noanonymous"
   postconf -e "smtp_sasl_mechanism_filter = plain,login"
-else
-  echo "No relayhost provided; direct delivery via MX lookups."
-  postconf -e "relayhost ="
 fi
 
-# --- Local aliases (optional convenience) ---
-# Mails to no-reply won't be delivered locally; but aliasing avoids local bounces.
+# Create a no-reply alias
 echo "no-reply: postmaster" > /etc/aliases
 newaliases || true
 
-# --- Fix permissions safely (Postfix knows best) ---
-if command -v postfix >/dev/null 2>&1; then
-  postfix set-permissions || true
-fi
+echo "Starting postfix..."
+# Ensure runtime directories exist and have correct ownership (avoid host mount permission issues)
+mkdir -p /var/spool/postfix /var/lib/postfix /var/log
+chown -R postfix:postfix /var/spool/postfix /var/lib/postfix || true
+chmod -R 700 /var/spool/postfix || true
 
-# --- Syslog (so /var/log/mail.log gets written) ---
-echo "Starting rsyslogd..."
+# Start syslog daemon so Postfix has a place to write mail.log
+echo "Starting rsyslog (rsyslogd) if available..."
+# Ensure mail.log exists so tail won't fail if rsyslogd hasn't created it yet
+touch /var/log/mail.log || true
+chmod 644 /var/log/mail.log || true
 if command -v rsyslogd >/dev/null 2>&1; then
+  # Start rsyslog daemon in the background (non-blocking)
   rsyslogd || true
+  echo "rsyslogd started"
 else
-  echo "WARNING: rsyslogd not found; mail logs may be limited."
+  echo "rsyslogd not found; syslog output may not be available inside container"
 fi
 
-# --- Start Postfix ---
-echo "Starting Postfix..."
-service postfix start || {
-  echo "Postfix failed to start. Recent logs:" >&2
-  [ -f /var/log/mail.log ] && tail -n 200 /var/log/mail.log >&2 || true
-  [ -f /var/log/syslog ] && tail -n 200 /var/log/syslog >&2 || true
-  echo "Postfix did not start successfully; sleeping for debug." >&2
-  sleep infinity
-}
+# Try to start postfix; on failure dump logs for debugging and keep the container alive
+if ! service postfix start; then
+  echo "Postfix failed to start. Dumping recent logs for debugging:" >&2
+  echo "--- /var/log/mail.log (last 200 lines) ---" >&2
+  if [ -f /var/log/mail.log ]; then
+    tail -n 200 /var/log/mail.log >&2 || true
+  else
+    echo "(no /var/log/mail.log present)" >&2
+  fi
+  echo "--- /var/log/syslog (last 200 lines) ---" >&2
+  if [ -f /var/log/syslog ]; then
+    tail -n 200 /var/log/syslog >&2 || true
+  else
+    echo "(no /var/log/syslog present)" >&2
+  fi
 
-# --- Health info ---
-postconf myhostname myorigin mynetworks relayhost smtpd_recipient_restrictions | sed 's/^/INFO: /'
+  echo "Postfix did not start successfully. Container will sleep for debugging. Fix configuration and restart the container." >&2
+  # keep the container running so you can exec into it and inspect files
+  sleep Infinity
+fi
 
-# --- Keep container alive & stream logs ---
-exec tail -F /var/log/mail.log
+# Keep container running and stream mail log (follow even if file is created later)
+tail -F /var/log/mail.log || sleep Infinity
