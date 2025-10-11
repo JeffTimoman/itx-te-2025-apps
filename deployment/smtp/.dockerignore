@@ -1,8 +1,12 @@
-data
-data/**
-.env
-.env.*
-*.log
-node_modules
+# --- repo root .dockerignore ---
+deployment/smtp/data/
+deployment/smtp/data/**
+
+# Good extras:
+**/node_modules
+**/.next
+**/dist
+**/build
 **/.git
-**/.git/**
+**/.DS_Store
+**/.env
