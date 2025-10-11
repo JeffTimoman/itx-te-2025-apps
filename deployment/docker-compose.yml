@@ -94,8 +94,8 @@ services:
     ports:
       - "2525:25"    # optional: publish to host for debugging; remove if you don't want host binding
     volumes:
-      - ./smtp/data/postfix/spool:/var/spool/postfix
-      - ./smtp/data/postfix/lib:/var/lib/postfix
+      - smtp-postfix-spool:/var/spool/postfix
+      - smtp-postfix-lib:/var/lib/postfix
     logging:
       driver: "json-file"
       options:
@@ -104,3 +104,5 @@ services:
 volumes:
   redis-data:
   postgres-data:
+  smtp-postfix-spool:
+  smtp-postfix-lib:
