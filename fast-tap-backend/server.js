@@ -125,6 +125,9 @@ const io = socketIo(server, {
 // Import game logic
 const GameManager = require('./src/gameManager');
 const gameManager = new GameManager(redisClient);
+// Split: import email and socket handler modules
+const { sendVerificationEmail, registerResendEndpoint } = require('./src/email');
+const registerSocketHandlers = require('./src/socketHandlers');
 
 // Routes
 app.get('/health', (req, res) => {
@@ -365,7 +368,7 @@ app.post('/api/registrations/verify', async (req, res) => {
       // Send verification email asynchronously (don't block response)
       (async () => {
         try {
-          await sendVerificationEmail(targetRegistrantId);
+          await sendVerificationEmail(() => pgPool, targetRegistrantId);
         } catch (err) {
           console.error('Failed to send verification email:', err && err.message);
         }
@@ -420,340 +423,24 @@ app.patch('/api/admin/registrants/:id', async (req, res) => {
     const updates = [];
     const values = [];
     let idx = 1;
-    for (const k of allowed) {
-      if (Object.prototype.hasOwnProperty.call(req.body, k)) {
-        updates.push(`${k} = $${idx}`);
-        values.push(req.body[k]);
-        idx++;
-      }
-    }
-    if (updates.length === 0) return res.status(400).json({ error: 'No fields to update' });
-    values.push(id);
-    const sql = `UPDATE registrants SET ${updates.join(', ')} WHERE id = $${idx} RETURNING id, name, gacha_code, email, is_win, is_verified, is_send_email, bureau, created_at`;
-    const result = await pgPool.query(sql, values);
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Registrant not found' });
-    res.json(result.rows[0]);
-  } catch (err) {
-    console.error('Error updating registrant', err && err.message);
-    res.status(500).json({ error: 'Failed to update registrant' });
-  }
-});
-
-// Socket.IO connection handling
-io.on('connection', (socket) => {
-  console.log('New client connected:', socket.id);
-
-  // Join room
-  socket.on('joinRoom', async (data) => {
-    try {
-      const { roomId, playerName } = data;
-      const result = await gameManager.joinRoom(socket.id, roomId, playerName);
-      
-      if (result.success) {
-        socket.join(roomId);
-        socket.emit('joinedRoom', { 
-          roomId, 
-          playerId: socket.id,
-          playerName,
-          room: result.room 
-        });
-        
-        // Notify other players in the room
-        socket.to(roomId).emit('playerJoined', { 
-          playerId: socket.id, 
-          playerName,
-          room: result.room
-        });
-        // If a game is currently active for this room, send the game state to the joining socket so it can sync
-        try {
-          const gameState = await gameManager.getGameState(roomId);
-          if (gameState && gameState.status === 'playing') {
-            // indicate this client joined mid-round
-            socket.emit('gameStarted', { gameState, startTime: gameState.startTime, durationMs: gameState.duration, isMidJoin: true });
-          }
-        } catch (e) {
-          console.warn('Failed to send gameState to joining client', e && e.message);
+      for (const k of allowed) {
+        if (Object.prototype.hasOwnProperty.call(req.body, k)) {
+          updates.push(`${k} = $${idx}`);
+          values.push(req.body[k]);
+          idx++;
         }
-      } else {
-        socket.emit('joinRoomError', { message: result.message });
       }
-    } catch (error) {
-      console.error('Error joining room:', error);
-      socket.emit('joinRoomError', { message: 'Failed to join room' });
-    }
-  });
 
-  // Create room
-  socket.on('createRoom', async (data) => {
-    try {
-      const { playerName } = data;
-      const result = await gameManager.createRoom(socket.id, playerName);
-      
-      if (result.success) {
-        socket.join(result.roomId);
-        socket.emit('roomCreated', { 
-          roomId: result.roomId, 
-          playerId: socket.id,
-          playerName,
-          room: result.room
-        });
-      } else {
-        socket.emit('createRoomError', { message: result.message });
-      }
-    } catch (error) {
-      console.error('Error creating room:', error);
-      socket.emit('createRoomError', { message: 'Failed to create room' });
-    }
-  });
-
-  // Start game
-  socket.on('startGame', async (data) => {
-    try {
-      const { roomId } = data;
-      const duration = Number(data.duration) || 30; // seconds
-      console.log(`startGame requested by ${socket.id} for room ${roomId} durationSeconds=${duration}`);
-      const result = await gameManager.startGame(roomId, socket.id, duration);
-      console.log('startGame result:', result && result.success ? 'success' : 'failed', result && result.gameState ? { duration: result.gameState.duration, startTime: result.gameState.startTime } : result);
-      
-      if (result.success) {
-        // Log chosen duration for debugging
-        try { console.log(`Starting game ${roomId} durationMs=${result.gameState.duration}`); } catch(e) {}
-        io.to(roomId).emit('gameStarted', { 
-          gameState: result.gameState,
-          // send the authoritative startTime and durationMs from gameState
-          startTime: result.gameState.startTime,
-          durationMs: result.gameState.duration,
-          durationSeconds: Math.round((result.gameState.duration || 0) / 1000)
-        });
-        
-        // Set game end timer based on gameState.duration (ms)
-        const durationMs = result.gameState.duration || 30000;
-        const timer = setTimeout(async () => {
-          // On timeout, check room state first
-          const room = await gameManager.getRoom(roomId);
-          if (!room) return;
-          if (room.firstTap) {
-            // Someone already tapped (race), end game normally
-            const endResult = await gameManager.endGame(roomId);
-            if (endResult.success) {
-              io.to(roomId).emit('gameEnded', {
-                results: endResult.results,
-                winner: endResult.winner
-              });
-            }
-          } else {
-            // No one tapped during the timer: emit an event indicating time expired with no taps
-            // Put the room into a 'post' phase where taps are allowed and the first tap will still win/stop everyone.
-            io.to(roomId).emit('timeExpiredNoTap', { message: 'Time expired with no taps' });
-            try {
-              room.status = 'post';
-              // keep gameStartTime and gameDuration if you want for reference; remove if not needed
-+              await gameManager._setEx(`${gameManager.ROOM_PREFIX}${roomId}`, 3600, JSON.stringify(room));
-              // Inform clients that post-timer tapping is now open
-              io.to(roomId).emit('postTimerOpen', { message: 'Timer ended — first tap now wins' });
-            } catch (e) {
-              console.warn('Failed to set room to post state after empty timeout', e && e.message);
-            }
-          }
-        }, durationMs);
-
-        // Store timer reference in memory so we could clear if first tap happens
-        if (!global._gameTimers) global._gameTimers = {};
-        global._gameTimers[roomId] = timer;
-      } else {
-        socket.emit('startGameError', { message: result.message });
-      }
-    } catch (error) {
-      console.error('Error starting game:', error);
-      socket.emit('startGameError', { message: 'Failed to start game' });
-    }
-  });
-
-  // Player tap
-  socket.on('tap', async (data) => {
-    try {
-      const { roomId } = data;
-      const result = await gameManager.registerTap(roomId, socket.id);
-      
-      if (result.success) {
-        // If this was the first tap recorded in the post phase, start a short tie window
-        // to allow near-simultaneous taps to be collected before finalizing winners.
-        if (result.firstTapRecorded) {
-          // clear the main game timer if present (we're in post phase, but be safe)
-          if (global._gameTimers && global._gameTimers[roomId]) {
-            clearTimeout(global._gameTimers[roomId]);
-            delete global._gameTimers[roomId];
-          }
-
-          // Notify clients about the first tap(s) being captured
-          io.to(roomId).emit('firstTap', {
-            playerId: result.tap.playerId,
-            playerName: result.tap.playerName,
-            timestamp: result.tap.timestamp
-          });
-          io.to(roomId).emit('disableTaps', { message: 'First tap received' });
-
-          // Wait a short tie-window (e.g., 150ms) to collect near-simultaneous taps
-          const TIE_WINDOW_MS = 150;
-          setTimeout(async () => {
-            try {
-              const endResult = await gameManager.endGame(roomId);
-              if (endResult.success) {
-                io.to(roomId).emit('gameEnded', {
-                  results: endResult.results,
-                  winner: endResult.winner
-                });
-              }
-            } catch (e) {
-              console.warn('Error finalizing endGame after tie window', e && e.message);
-            }
-          }, TIE_WINDOW_MS);
-        }
-        // Broadcast tap to all players in the room (no scores)
-        io.to(roomId).emit('tapRegistered', { 
-          playerId: socket.id,
-        });
-      } else {
-        // Inform the tapping client why the tap was rejected (e.g., last winner)
-        try {
-          socket.emit('tapDenied', { message: result.message });
-        } catch (e) {}
-      }
-    } catch (error) {
-      console.error('Error registering tap:', error);
-    }
-  });
-
-  // Admin toggles allowing joins
-  socket.on('setAllowJoins', async (data) => {
-    try {
-      const { roomId, allow } = data;
-      const room = await gameManager.getRoom(roomId);
-      if (!room) return;
-      // Only host can change
-      if (room.host !== socket.id) {
-        socket.emit('setAllowJoinsError', { message: 'Only the host can change join settings' });
-        return;
-      }
-      room.allowJoins = !!allow;
-      await gameManager._setEx(`${gameManager.ROOM_PREFIX}${roomId}`, 3600, JSON.stringify(room));
-      io.to(roomId).emit('allowJoinsChanged', { allowJoins: room.allowJoins, room });
-      socket.emit('setAllowJoinsAck', { success: true });
-    } catch (e) {
-      console.error('Error setting allowJoins', e && e.message);
-      socket.emit('setAllowJoinsError', { message: 'Failed to set allowJoins' });
-    }
-  });
-
-  // Admin resets the round (clear firstTap and re-enable taps)
-  socket.on('resetRound', async (data) => {
-    try {
-      const { roomId } = data;
-      const room = await gameManager.getRoom(roomId);
-      if (!room) return;
-      delete room.firstTap;
-  delete room.awaitingAnswer;
-  // Reset status to 'waiting' so tapping is disabled until the admin starts a new round
-  room.status = 'waiting';
-  // clear any recorded taps so players can tap again
-  delete room.taps;
-  // clear lastWinner/roundWinners so previous winners can tap again
-  delete room.lastWinner;
-  delete room.roundWinners;
-  delete room.gameStartTime;
-  delete room.gameDuration;
-      // no tap counts stored — nothing to reset here
-      await gameManager._setEx(`${gameManager.ROOM_PREFIX}${roomId}`, 3600, JSON.stringify(room));
-      io.to(roomId).emit('roundReset', { message: 'Round has been reset by admin', room });
+      values.push(id);
+      const sql = `UPDATE registrants SET ${updates.join(', ')} WHERE id = $${idx} RETURNING id, name, gacha_code, email, is_win, is_verified, is_send_email, bureau, created_at`;
+      const result = await pgPool.query(sql, values);
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Registrant not found' });
+      res.json(result.rows[0]);
     } catch (err) {
-      console.error('Error resetting round', err);
+      console.error('Error updating registrant', err && err.message);
+      res.status(500).json({ error: 'Failed to update registrant' });
     }
   });
-
-  // Admin ends the game and kicks all players (except the admin) from the room
-  socket.on('endGame', async (data) => {
-    try {
-      const { roomId } = data;
-      const room = await gameManager.getRoom(roomId);
-      if (!room) {
-        socket.emit('endGameError', { message: 'Room not found' });
-        return;
-      }
-      // Only the host can forcibly end the game
-      if (room.host !== socket.id) {
-        socket.emit('endGameError', { message: 'Only the host can end the game' });
-        return;
-      }
-
-      // Iterate over players and remove/disconnect them (except host)
-      const playerIds = Object.keys(room.players || {});
-      for (const pid of playerIds) {
-        if (pid === socket.id) continue;
-        try {
-          // Remove from room in storage
-          await gameManager.leaveRoom(roomId, pid);
-        } catch (e) {
-          // ignore per-player errors
-        }
-
-        // Attempt to find and disconnect their socket
-        try {
-          const playerSocket = io.sockets.sockets.get(pid);
-          if (playerSocket) {
-            try {
-              playerSocket.emit('kicked', { message: 'The admin ended the game' });
-            } catch (e) {}
-            try { playerSocket.leave(roomId); } catch (e) {}
-            try { playerSocket.disconnect(true); } catch (e) {}
-          }
-        } catch (e) {
-          // ignore
-        }
-      }
-
-      // Refresh room state and notify remaining clients (admin)
-      const updated = await gameManager.getRoom(roomId);
-      io.to(roomId).emit('roomEnded', { message: 'Game ended by admin', room: updated });
-      socket.emit('endGameAck', { success: true });
-    } catch (err) {
-      console.error('Error ending game', err);
-      socket.emit('endGameError', { message: 'Failed to end game' });
-    }
-  });
-
-  // Leave room
-  socket.on('leaveRoom', async (data) => {
-    try {
-      const { roomId } = data;
-      const result = await gameManager.leaveRoom(roomId, socket.id);
-      
-      if (result.success) {
-        socket.leave(roomId);
-        socket.to(roomId).emit('playerLeft', { 
-          playerId: socket.id,
-          room: result.room
-        });
-      }
-    } catch (error) {
-      console.error('Error leaving room:', error);
-    }
-  });
-
-  // Handle disconnection
-  socket.on('disconnect', async () => {
-    console.log('Client disconnected:', socket.id);
-    try {
-      const result = await gameManager.handleDisconnect(socket.id);
-      // If handleDisconnect returned a leaveRoom result with room info, notify other clients
-      if (result && result.success && result.room) {
-        const roomId = result.room.id || result.roomId;
-        try { io.to(roomId).emit('playerLeft', { playerId: socket.id, room: result.room }); } catch (e) { }
-      }
-    } catch (error) {
-      console.error('Error handling disconnect:', error);
-    }
-  });
-});
 
 const PORT = process.env.PORT || 5000;
 
@@ -1060,116 +747,6 @@ app.post('/api/admin/gifts/:id/assign', async (req, res) => {
   }
 });
 
-// Helper: send verification email with gacha_code and barcode image
-async function sendVerificationEmail(registrantId) {
-  if (!pgPool) throw new Error('Postgres not configured');
-  try {
-    const r = await pgPool.query('SELECT id, name, email, bureau, gacha_code FROM registrants WHERE id = $1', [registrantId]);
-    if (r.rows.length === 0) throw new Error('Registrant not found');
-    const registrant = r.rows[0];
-    if (!registrant.email) {
-      console.log('Registrant has no email, skipping send for id', registrantId);
-      // write a log entry indicating no email
-      try {
-        await pgPool.query('INSERT INTO email_logs (registrant_id, to_email, subject, body, success, error) VALUES ($1,$2,$3,$4,$5,$6)', [registrantId, '', 'verification email', '', 'N', 'no email on registrant']);
-      } catch (e) {
-        console.warn('Failed to write email_logs for missing email', e && e.message);
-      }
-      return { ok: false, error: 'no email' };
-    }
-
-    const smtpHost = process.env.SMTP_HOST || 'smtp-send-only';
-    const smtpPort = parseInt(process.env.SMTP_PORT || '25', 10);
-    const smtpUser = process.env.SMTP_USER || '';
-    const smtpPass = process.env.SMTP_PASS || '';
-    const smtpFrom = process.env.SMTP_FROM || `no-reply@${process.env.POSTFIX_MYDOMAIN || 'te-itx-2025.site'}`;
-
-    // Prepare barcode (Code128) as PNG buffer using bwip-js
-    let barcodePng = null;
-    try {
-      barcodePng = await bwipjs.toBuffer({
-        bcid:        'code128',       // Barcode type
-        text:        registrant.gacha_code || '',
-        scale:       3,
-        height:      10,
-        includetext: false,
-        backgroundcolor: 'FFFFFF',
-      });
-    } catch (err) {
-      console.warn('Failed to generate barcode image:', err && err.message);
-      barcodePng = null;
-    }
-
-    // Create transporter
-    const transporter = nodemailer.createTransport({
-      host: smtpHost,
-      port: smtpPort,
-      secure: smtpPort === 465, // true for 465, false for others
-      auth: smtpUser && smtpPass ? { user: smtpUser, pass: smtpPass } : undefined,
-      tls: { rejectUnauthorized: false },
-    });
-
-    const to = registrant.email;
-    const subject = 'Verification successful — your gacha code';
-    const text = `Thank you for verifying, ${registrant.name} - ${registrant.bureau || ''}\n\nYour gacha code: ${registrant.gacha_code || ''}\n\nGood luck!`;
-
-    const html = `
-      <p>Thank you for verifying, <strong>${registrant.name} - ${registrant.bureau || ''}</strong>.</p>
-      <p>Your gacha code: <strong style="font-family:monospace">${registrant.gacha_code || ''}</strong></p>
-      ${barcodePng ? '<p><img src="cid:gcodeimg" alt="gacha barcode" /></p>' : ''}
-      <p>Good luck on winning!</p>
-    `;
-
-    const mailOptions = {
-      from: smtpFrom,
-      to,
-      subject,
-      text,
-      html,
-      attachments: [],
-    };
-    if (barcodePng) {
-      mailOptions.attachments.push({ filename: 'gcode.png', content: barcodePng, cid: 'gcodeimg' });
-    }
-
-    // Attempt to send
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Sent verification email to', to);
-
-    // record success in email_logs and mark registrant as sent
-    try {
-      await pgPool.query('INSERT INTO email_logs (registrant_id, to_email, subject, body, success) VALUES ($1,$2,$3,$4,$5)', [registrantId, to, subject, html, 'Y']);
-      await pgPool.query('UPDATE registrants SET is_send_email = $1 WHERE id = $2', ['Y', registrantId]);
-    } catch (e) {
-      console.warn('Failed to write email_logs or update registrant after send', e && e.message);
-    }
-
-    return { ok: true, info };
-  } catch (err) {
-    console.error('sendVerificationEmail error:', err && err.message);
-    // log failure
-    try {
-      const r2 = await pgPool.query('SELECT email FROM registrants WHERE id = $1', [registrantId]);
-      const toEmail = (r2.rows[0] && r2.rows[0].email) || '';
-      await pgPool.query('INSERT INTO email_logs (registrant_id, to_email, subject, body, success, error) VALUES ($1,$2,$3,$4,$5,$6)', [registrantId, toEmail, 'verification email', '', 'N', String(err && err.message ? err.message : err)]);
-    } catch (e) {
-      console.warn('Failed to write email_logs after send error', e && e.message);
-    }
-    return { ok: false, error: err && err.message ? err.message : String(err) };
-  }
-}
-
-// Endpoint: resend verification email for a registrant (admin-only). Triggers sendVerificationEmail and returns logged result.
-app.post('/api/admin/registrants/:id/resend-email', async (req, res) => {
-  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
-  const id = parseInt(req.params.id, 10);
-  if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid registrant id' });
-  try {
-    const result = await sendVerificationEmail(id);
-    if (result && result.ok) return res.json({ ok: true });
-    return res.status(500).json({ ok: false, error: result && result.error ? result.error : 'failed to send' });
-  } catch (err) {
-    console.error('resend-email endpoint error', err && err.message);
-    res.status(500).json({ error: 'Failed to resend email' });
-  }
-});
+// Register resend endpoint and socket handlers from extracted modules
+registerResendEndpoint(app, () => pgPool);
+registerSocketHandlers(io, gameManager);
