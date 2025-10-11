@@ -42,6 +42,11 @@ services:
       - MAX_PLAYERS_PER_ROOM=500
       - CORS_ORIGIN=https://te-itx-2025.site
       - GAME_DURATION=3000000
+      - SMTP_HOST=smtp-send-only
+      - SMTP_PORT=25
+      - SMTP_USER=
+      - SMTP_PASS=
+      - SMTP_FROM=no-reply@te-itx-2025.site
     ports:
       - "5000:5000"
     depends_on:
