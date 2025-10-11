@@ -40,7 +40,31 @@ echo "no-reply: postmaster" > /etc/aliases
 newaliases || true
 
 echo "Starting postfix..."
-service postfix start
+# Ensure runtime directories exist and have correct ownership (avoid host mount permission issues)
+mkdir -p /var/spool/postfix /var/lib/postfix /var/log
+chown -R postfix:postfix /var/spool/postfix /var/lib/postfix || true
+chmod -R 700 /var/spool/postfix || true
 
-# Keep container running
+# Try to start postfix; on failure dump logs for debugging and keep the container alive
+if ! service postfix start; then
+  echo "Postfix failed to start. Dumping recent logs for debugging:" >&2
+  echo "--- /var/log/mail.log (last 200 lines) ---" >&2
+  if [ -f /var/log/mail.log ]; then
+    tail -n 200 /var/log/mail.log >&2 || true
+  else
+    echo "(no /var/log/mail.log present)" >&2
+  fi
+  echo "--- /var/log/syslog (last 200 lines) ---" >&2
+  if [ -f /var/log/syslog ]; then
+    tail -n 200 /var/log/syslog >&2 || true
+  else
+    echo "(no /var/log/syslog present)" >&2
+  fi
+
+  echo "Postfix did not start successfully. Container will sleep for debugging. Fix configuration and restart the container." >&2
+  # keep the container running so you can exec into it and inspect files
+  sleep Infinity
+fi
+
+# Keep container running and stream mail log
 tail -f /var/log/mail.log || sleep Infinity
