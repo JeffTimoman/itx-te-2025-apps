@@ -157,7 +157,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
       {/* Main */}
       <main className="max-w-3xl mx-auto px-4 py-8">
         <p className="text-slate-300 text-sm">
-          Select your name and enter your email to activate your registration.
+          Select your name and enter your email to get your code for winning prizes.
           This link is single‑use and expires after ~15 minutes.
         </p>
 
@@ -202,7 +202,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search name/bureau"
+                  placeholder="Search name/biro"
                   className="flex-1 p-3 rounded-xl bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
                 />
                 <button

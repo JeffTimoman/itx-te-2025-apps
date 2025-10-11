@@ -13,10 +13,10 @@ export default function VerificationFinishPage() {
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-white/10 grid place-content-center text-sm font-bold">
-              VR
+              ITX
             </div>
             <h1 className="text-sm sm:text-base font-semibold">
-              Verify Registration
+              Panitia TE ITX
             </h1>
           </div>
         </div>
@@ -49,7 +49,7 @@ export default function VerificationFinishPage() {
           </p>
 
           <div className="mt-8 flex items-center justify-center gap-3">
-            -
+            Check your spam box to view the email.
           </div>
         </div>
       </main>

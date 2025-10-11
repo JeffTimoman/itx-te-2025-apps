@@ -12,16 +12,6 @@ type Registrant = {
 
 type FetchErr = unknown | { error?: string; message?: string } | string;
 
-/**
- * AssignGiftPage — manual assignment console (polished)
- *
- * UX upgrades
- * - Two‑panel layout: Gift on the left, Registrant on the right
- * - Live search + bureau filter + rows/page for registrants
- * - Capacity guard (if awarded === quantity, disable assign)
- * - Sticky action bar, success/error banners, skeleton loaders
- * - Masked gacha codes (PPPPYYYY‑**********) with Copy
- */
 export default function AssignGiftPage() {
   const [gifts, setGifts] = useState<Gift[]>([]);
   const [registrants, setRegistrants] = useState<Registrant[]>([]);
@@ -104,6 +94,7 @@ export default function AssignGiftPage() {
   useEffect(() => {
     setPage(1);
   }, [q, bureauFilter, pageSize]);
+
   const totalPages = Math.max(1, Math.ceil(filteredRegs.length / pageSize));
   const pageSafe = Math.min(page, totalPages);
   const pagedRegs = useMemo(() => {
@@ -136,7 +127,7 @@ export default function AssignGiftPage() {
       if (!res.ok) throw body;
 
       setSuccess("Gift assigned ✔");
-      // Refresh lists
+      // refresh
       const g = await fetch("/api/admin/gifts/available");
       if (g.ok) setGifts(await g.json());
       const r = await fetch("/api/admin/registrants");
@@ -164,7 +155,7 @@ export default function AssignGiftPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100">
+    <div className="min-h-dvh bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100">
       {/* Header */}
       <header className="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-white/5 border-b border-white/10">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -172,9 +163,7 @@ export default function AssignGiftPage() {
             <div className="h-8 w-8 rounded-xl bg-white/10 grid place-content-center text-sm font-bold">
               ITX
             </div>
-            <h1 className="text-sm sm:text-base font-semibold">
-              Assign Gift (Manual)
-            </h1>
+            <h1 className="text-sm sm:text-base font-semibold">Assign Gift</h1>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -195,7 +184,7 @@ export default function AssignGiftPage() {
       </header>
 
       {/* Main */}
-      <main className="max-w-6xl mx-auto px-4 py-8 grid lg:grid-cols-2 gap-6 items-start">
+      <main className="max-w-6xl mx-auto px-4 py-6 sm:py-8 grid lg:grid-cols-2 gap-6 items-start">
         {/* Left: Gift */}
         <section className="rounded-2xl p-6 bg-white/5 border border-white/10 space-y-4">
           <h2 className="text-lg font-bold">1) Choose gift</h2>
@@ -214,7 +203,6 @@ export default function AssignGiftPage() {
             ))}
           </select>
 
-          {/* Gift summary */}
           {selectedGiftObj && (
             <div className="rounded-xl p-3 bg-white/5 border border-white/10 text-sm">
               <div className="font-medium">{selectedGiftObj.name}</div>
@@ -244,9 +232,9 @@ export default function AssignGiftPage() {
           {loading && <div className="text-xs opacity-80">Working…</div>}
         </section>
 
-        {/* Right: Registrants */}
-        <section className="rounded-2xl p-6 bg-white/5 border border-white/10 space-y-4">
-          <h2 className="text-lg font-bold">2) Pick registrant</h2>
+        {/* Right: Registrants (mobile-safe scrollable) */}
+        <section className="rounded-2xl p-4 sm:p-6 bg-white/5 border border-white/10 space-y-4 flex flex-col min-h-[70dvh]">
+          <h2 className="text-lg font-bold">2) Pick winner</h2>
 
           {/* Filters */}
           <div className="flex flex-wrap gap-3 items-center">
@@ -254,7 +242,7 @@ export default function AssignGiftPage() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search (name, bureau, code, id)"
-              className="w-80 max-w-full p-2.5 rounded-xl bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+              className="w-full sm:w-80 p-2.5 rounded-xl bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
             />
             <select
               value={bureauFilter}
@@ -268,7 +256,7 @@ export default function AssignGiftPage() {
                 </option>
               ))}
             </select>
-            <div className="ml-auto flex items-center gap-2 text-xs">
+            <div className="sm:ml-auto w-full sm:w-auto flex items-center gap-2 text-xs">
               <span className="opacity-70">Rows</span>
               <select
                 value={pageSize}
@@ -284,10 +272,13 @@ export default function AssignGiftPage() {
             </div>
           </div>
 
-          {/* Table */}
-          <div className="rounded-xl overflow-hidden border border-white/10">
-            <div className="overflow-auto max-h-[50vh]">
-              <table className="w-full text-sm">
+          {/* Table container becomes the flex-grow scroller */}
+          <div className="flex-1 min-h-0 rounded-xl overflow-hidden border border-white/10">
+            <div
+              className="h-full overflow-auto overflow-x-auto"
+              style={{ WebkitOverflowScrolling: "touch" }}
+            >
+              <table className="w-full text-sm min-w-[720px] sm:min-w-0">
                 <thead className="bg-white/10 sticky top-0 z-10">
                   <tr className="text-left">
                     <Th>ID</Th>
@@ -370,7 +361,8 @@ export default function AssignGiftPage() {
                 </tbody>
               </table>
             </div>
-            {/* Pagination */}
+
+            {/* Pagination (kept outside the scroller for consistent tap targets) */}
             <div className="flex items-center justify-between px-3 py-2 border-t border-white/10 text-xs">
               <div className="opacity-80">
                 Page {pageSafe} / {totalPages} • {filteredRegs.length} total
@@ -397,7 +389,7 @@ export default function AssignGiftPage() {
           {/* Action bar */}
           <form
             onSubmit={handleAssign}
-            className="sticky bottom-0 mt-3 flex items-center justify-end gap-2"
+            className="sticky bottom-0 mt-3 flex items-center justify-end gap-2 backdrop-blur bg-white/5 border border-white/10 rounded-xl px-3 py-2 pb-[env(safe-area-inset-bottom)]"
           >
             <button
               type="button"
@@ -424,7 +416,7 @@ export default function AssignGiftPage() {
 
 function Th({ children }: { children?: React.ReactNode }) {
   return (
-    <th className="p-3 text-[11px] font-semibold uppercase tracking-wider text-slate-200/90">
+    <th className="p-3 text-[11px] font-semibold uppercase tracking-wider text-slate-200/90 whitespace-nowrap">
       {children}
     </th>
   );
