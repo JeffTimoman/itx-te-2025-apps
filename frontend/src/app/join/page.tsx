@@ -353,18 +353,25 @@ export default function JoinPage() {
       className="w-screen h-dvh min-h-screen min-w-full bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 text-slate-100"
       onPointerDown={handlePointerTap}
       onKeyDown={(e) => {
-        if (!joined && (e.key === "Enter" || e.key === " ")) {
-          // allow Enter to submit when on the form
-          const active = document.activeElement as HTMLElement | null;
-          if (
-            active &&
-            (active.tagName === "INPUT" || active.tagName === "BUTTON")
-          ) {
-            e.preventDefault();
-            if (canJoin) handleJoin();
+        const isSpace = e.key === " " || e.code === "Space";
+
+        if (!joined) {
+          // Only Enter submits the join form; Space should type spaces normally
+          if (e.key === "Enter") {
+            const active = document.activeElement as HTMLElement | null;
+            if (
+              active &&
+              (active.tagName === "INPUT" || active.tagName === "BUTTON")
+            ) {
+              e.preventDefault();
+              if (canJoin) handleJoin();
+            }
           }
+          return; // ignore Space before joined
         }
-        if (joined && !tapDisabled && (e.key === "Enter" || e.key === " ")) {
+
+        // After joined: Space/Enter = tap
+        if (!tapDisabled && (isSpace || e.key === "Enter")) {
           e.preventDefault();
           handleTap();
         }
@@ -390,7 +397,9 @@ export default function JoinPage() {
                   • You: <span className="font-semibold">{name || "—"}</span>
                 </span>
               ) : (
-                <span className="opacity-80">Application Var For ITX - Join Room to Play!</span>
+                <span className="opacity-80">
+                  Application Var For ITX - Join Room to Play!
+                </span>
               )}
             </div>
           </div>
@@ -605,13 +614,11 @@ export default function JoinPage() {
             {joined ? (
               <span>Inactive auto-leave in {INACTIVITY_SECONDS / 60} min</span>
             ) : (
-              <span>
-                Panitia TE ITX 2025
-              </span>
+              <span>Panitia TE ITX 2025</span>
             )}
           </div>
           <div className="hidden sm:block pointer-events-auto opacity-80">
-            Var For ITX 
+            Var For ITX
           </div>
         </div>
       </footer>

@@ -155,7 +155,8 @@ export default function AssignGiftPage() {
   }
 
   return (
-    <div className="min-h-dvh bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100">
+    // ★ Use min-h-screen and hide page-level horizontal overflow to prevent bleed on iOS
+    <div className="min-h-screen overflow-x-hidden bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100">
       {/* Header */}
       <header className="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-white/5 border-b border-white/10">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -233,7 +234,8 @@ export default function AssignGiftPage() {
         </section>
 
         {/* Right: Registrants (mobile-safe scrollable) */}
-        <section className="rounded-2xl p-4 sm:p-6 bg-white/5 border border-white/10 space-y-4 flex flex-col min-h-[70dvh]">
+        {/* ★ Make the section a column with min-h-0 so inner scroller can size correctly */}
+        <section className="rounded-2xl p-4 sm:p-6 bg-white/5 border border-white/10 space-y-4 flex flex-col min-h-[70vh] min-h-[70svh]">
           <h2 className="text-lg font-bold">2) Pick winner</h2>
 
           {/* Filters */}
@@ -272,97 +274,117 @@ export default function AssignGiftPage() {
             </div>
           </div>
 
-          {/* Table container becomes the flex-grow scroller */}
-          <div className="flex-1 min-h-0 rounded-xl overflow-hidden border border-white/10">
-            <div
-              className="h-full overflow-auto overflow-x-auto"
-              style={{ WebkitOverflowScrolling: "touch" }}
-            >
-              <table className="w-full text-sm min-w-[720px] sm:min-w-0">
-                <thead className="bg-white/10 sticky top-0 z-10">
-                  <tr className="text-left">
-                    <Th>ID</Th>
-                    <Th>Name</Th>
-                    <Th>Bureau</Th>
-                    <Th>Gacha Code</Th>
-                    <Th></Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {fetching ? (
-                    [...Array(8)].map((_, i) => (
-                      <tr key={i} className="border-t border-white/10">
-                        {[...Array(5)].map((__, j) => (
-                          <td key={j} className="p-3">
-                            <div className="h-4 w-24 sm:w-32 bg-white/10 rounded animate-pulse" />
-                          </td>
-                        ))}
-                      </tr>
-                    ))
-                  ) : pagedRegs.length === 0 ? (
-                    <tr>
-                      <td
-                        className="p-6 text-center text-slate-300"
-                        colSpan={5}
-                      >
-                        No registrants found.
-                      </td>
+          {/* ★ Edge-safe scroller: pad inside, negative margin outside to avoid 1–2px overflow */}
+          <div className="flex-1 min-h-0 rounded-xl border border-white/10">
+            <div className="-mx-4 sm:mx-0">
+              <div
+                className="px-4 h-[56vh] sm:h-auto overflow-x-auto overflow-y-auto"
+                style={{ WebkitOverflowScrolling: "touch" }}
+              >
+                {/* ★ Keep a modest min-w so it scrolls on phones but doesn’t blow up the page */}
+                <table className="w-full text-sm min-w-[600px]">
+                  <thead className="bg-white/10 sticky top-0 z-10">
+                    <tr className="text-left">
+                      <Th>ID</Th>
+                      <Th>Name</Th>
+                      <Th>Bureau</Th>
+                      <Th>Gacha Code</Th>
+                      <Th></Th>
                     </tr>
-                  ) : (
-                    pagedRegs.map((r) => (
-                      <tr
-                        key={r.id}
-                        onClick={() => setSelectedRegistrant(r.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setSelectedRegistrant(r.id);
-                          }
-                        }}
-                        role="button"
-                        tabIndex={0}
-                        className={`border-t border-white/10 hover:bg-white/5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400/40 ${
-                          selectedRegistrant === r.id ? "bg-indigo-500/10" : ""
-                        }`}
-                      >
-                        <td className="p-3 font-mono opacity-80 whitespace-nowrap">
-                          {r.id}
-                        </td>
-                        <td className="p-3 min-w-[14rem]">{r.name}</td>
-                        <td className="p-3 whitespace-nowrap">
-                          {r.bureau || <span className="opacity-60">—</span>}
-                        </td>
-                        <td className="p-3 whitespace-nowrap">
-                          <div className="inline-flex items-center gap-2">
-                            <span className="font-mono">
-                              {maskedCode(r.gacha_code)}
-                            </span>
-                            {r.gacha_code && (
-                              <button
-                                onClick={() => copy(r.gacha_code!)}
-                                className="text-[11px] px-2 py-0.5 rounded bg-white/10 border border-white/20 hover:bg-white/15"
-                              >
-                                Copy
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                        <td className="p-3 text-right">
-                          <button
-                            onClick={() => setSelectedRegistrant(r.id)}
-                            className="px-3 py-1.5 rounded-lg bg-indigo-500/90 hover:bg-indigo-500 text-xs"
-                          >
-                            Select
-                          </button>
+                  </thead>
+                  <tbody>
+                    {fetching ? (
+                      [...Array(8)].map((_, i) => (
+                        <tr key={i} className="border-t border-white/10">
+                          {[...Array(5)].map((__, j) => (
+                            <td key={j} className="p-3">
+                              <div className="h-4 w-24 sm:w-32 bg-white/10 rounded animate-pulse" />
+                            </td>
+                          ))}
+                        </tr>
+                      ))
+                    ) : pagedRegs.length === 0 ? (
+                      <tr>
+                        <td
+                          className="p-6 text-center text-slate-300"
+                          colSpan={5}
+                        >
+                          No registrants found.
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      pagedRegs.map((r) => (
+                        <tr
+                          key={r.id}
+                          onClick={() => setSelectedRegistrant(r.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              setSelectedRegistrant(r.id);
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          className={`border-t border-white/10 hover:bg-white/5 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-400/40 ${
+                            selectedRegistrant === r.id
+                              ? "bg-indigo-500/10"
+                              : ""
+                          }`}
+                        >
+                          {/* ★ Allow wrap/truncate to avoid hard overflow */}
+                          <td className="p-3 font-mono opacity-80 whitespace-nowrap max-w-[6rem] truncate">
+                            {r.id}
+                          </td>
+                          <td className="p-3">
+                            <div
+                              className="max-w-[14rem] sm:max-w-none truncate"
+                              title={r.name}
+                            >
+                              {r.name}
+                            </div>
+                          </td>
+                          <td className="p-3">
+                            <div className="max-w-[10rem] truncate">
+                              {r.bureau || (
+                                <span className="opacity-60">—</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3">
+                            <div className="inline-flex items-center gap-2 max-w-[14rem]">
+                              <span
+                                className="font-mono truncate"
+                                title={r.gacha_code || ""}
+                              >
+                                {maskedCode(r.gacha_code)}
+                              </span>
+                              {r.gacha_code && (
+                                <button
+                                  onClick={() => copy(r.gacha_code!)}
+                                  className="text-[11px] px-2 py-0.5 rounded bg-white/10 border border-white/20 hover:bg-white/15"
+                                >
+                                  Copy
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3 text-right">
+                            <button
+                              onClick={() => setSelectedRegistrant(r.id)}
+                              className="px-3 py-1.5 rounded-lg bg-indigo-500/90 hover:bg-indigo-500 text-xs"
+                            >
+                              Select
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
 
-            {/* Pagination (kept outside the scroller for consistent tap targets) */}
+            {/* Pagination (outside the scroller) */}
             <div className="flex items-center justify-between px-3 py-2 border-t border-white/10 text-xs">
               <div className="opacity-80">
                 Page {pageSafe} / {totalPages} • {filteredRegs.length} total
