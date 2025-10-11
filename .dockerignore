@@ -1,0 +1,12 @@
+# --- repo root .dockerignore ---
+deployment/smtp/data/
+deployment/smtp/data/**
+
+# Good extras:
+**/node_modules
+**/.next
+**/dist
+**/build
+**/.git
+**/.DS_Store
+**/.env
