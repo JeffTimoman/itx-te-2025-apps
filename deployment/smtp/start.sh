@@ -14,7 +14,10 @@ echo "Configuring Postfix as send-only for domain: ${POSTFIX_MYDOMAIN}"
 # Basic main.cf overrides
 postconf -e "myhostname = ${POSTFIX_MYDOMAIN}"
 postconf -e "myorigin = ${POSTFIX_MYDOMAIN}"
-postconf -e "inet_interfaces = loopback-only"
+## In Docker we want Postfix to bind to the container network interface (not only loopback)
+## so other containers can connect to it via the compose network. Binding only to
+## loopback prevents remote containers from reaching port 25 and causes ECONNREFUSED.
+postconf -e "inet_interfaces = all"
 postconf -e "mydestination ="
 postconf -e "relayhost = ${RELAY_HOST:+[${RELAY_HOST}]:}${RELAY_PORT}"
 postconf -e "smtp_tls_security_level = may"
