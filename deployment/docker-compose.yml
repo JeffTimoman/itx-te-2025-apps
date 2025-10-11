@@ -73,7 +73,30 @@ services:
         limits:
           cpus: '0.5'
           memory: 1536M
-
+  smtp-send-only:
+    build:
+      context: ./smtp
+    image: itx/smtp-send-only:latest
+    restart: unless-stopped
+    env_file:
+      - ./smtp/.env      # or move vars to the root .env if you prefer
+    environment:
+      - POSTFIX_MYDOMAIN=${POSTFIX_MYDOMAIN:-te-itx-2025.site}
+      - RELAY_HOST=${RELAY_HOST:-}
+      - RELAY_PORT=${RELAY_PORT:-587}
+      - RELAY_USER=${RELAY_USER:-}
+      - RELAY_PASS=${RELAY_PASS:-}
+    # expose port 25 to other containers (internal Docker network)
+    ports:
+      - "2525:25"    # optional: publish to host for debugging; remove if you don't want host binding
+    volumes:
+      - ./smtp/data/postfix/spool:/var/spool/postfix
+      - ./smtp/data/postfix/lib:/var/lib/postfix
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 volumes:
   redis-data:
   postgres-data:
