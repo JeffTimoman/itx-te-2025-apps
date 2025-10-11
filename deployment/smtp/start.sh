@@ -45,6 +45,10 @@ mkdir -p /var/spool/postfix /var/lib/postfix /var/log
 chown -R postfix:postfix /var/spool/postfix /var/lib/postfix || true
 chmod -R 700 /var/spool/postfix || true
 
+# Start syslog daemon so Postfix has a place to write mail.log
+echo "Starting rsyslog..."
+service rsyslog start || true
+
 # Try to start postfix; on failure dump logs for debugging and keep the container alive
 if ! service postfix start; then
   echo "Postfix failed to start. Dumping recent logs for debugging:" >&2
@@ -66,5 +70,5 @@ if ! service postfix start; then
   sleep Infinity
 fi
 
-# Keep container running and stream mail log
-tail -f /var/log/mail.log || sleep Infinity
+# Keep container running and stream mail log (follow even if file is created later)
+tail -F /var/log/mail.log || sleep Infinity
