@@ -37,6 +37,7 @@ postconf -e "smtpd_tls_security_level = may"
 postconf -e "smtp_tls_security_level = may"
 postconf -e "smtp_use_tls = yes"
 postconf -e "smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt"
+postconf -e "inet_protocols = ipv4"
 
 # --- relayhost (only when set) ---
 if [ -n "$RELAY_HOST" ]; then
