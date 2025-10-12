@@ -4,15 +4,11 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import api, { Gift } from "../../../lib/api/gifts";
 import AdminHeader from "../../../components/AdminHeader";
 
+type SortKey = "id" | "name" | "category" | "qty" | "created" | null;
+type SortDir = "asc" | "desc";
+
 /**
- * GiftsAdmin — revamped gifts dashboard (create, list, delete)
- *
- * UX upgrades
- * - Header with Refresh + CSV export
- * - Create card with inline validation, min/max guards, and spinners
- * - Filters: search by name/description/code, category dropdown, rows/page
- * - Responsive table with sticky header, skeleton loaders, empty state
- * - Client-side pagination; confirm delete; error banner
+ * GiftsAdmin — gifts dashboard with header filters + sorting
  */
 export default function GiftsAdmin() {
   const [gifts, setGifts] = useState<Gift[]>([]);
@@ -31,11 +27,22 @@ export default function GiftsAdmin() {
 
   const [error, setError] = useState<string | null>(null);
 
-  // Filters / paging
+  // Toolbar / paging
   const [query, setQuery] = useState("");
   const [catFilter, setCatFilter] = useState<string>("all");
   const [pageSize, setPageSize] = useState<number>(10);
   const [page, setPage] = useState<number>(1);
+
+  // Header filters
+  const [nameFilter, setNameFilter] = useState("");
+  const [catTextFilter, setCatTextFilter] = useState("");
+  const [qtyMin, setQtyMin] = useState<string>("");
+  const [qtyMax, setQtyMax] = useState<string>("");
+  const [createdFilter, setCreatedFilter] = useState("");
+
+  // Sorting
+  const [sortKey, setSortKey] = useState<SortKey>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   function toMsg(e: unknown) {
     if (typeof e === "string") return e;
@@ -110,33 +117,107 @@ export default function GiftsAdmin() {
     }
   }
 
-  // Derived
+  // Helpers / derived
   const categoryName = (id?: number | null) =>
     id ? categories.find((c) => c.id === id)?.name || String(id) : "";
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return gifts.filter((g) => {
-      const catOk =
-        catFilter === "all" || categoryName(g.gift_category_id) === catFilter;
-      if (!q) return catOk;
-      const hay = `${g.id}|${g.name}|${g.description || ""}|${categoryName(
-        g.gift_category_id
-      )}`.toLowerCase();
-      return catOk && hay.includes(q);
-    });
-  }, [gifts, query, catFilter]);
+    const nf = nameFilter.trim().toLowerCase();
+    const ctf = catTextFilter.trim().toLowerCase();
+    const cf = createdFilter.trim().toLowerCase();
+    const min =
+      qtyMin.trim() === "" ? Number.NEGATIVE_INFINITY : Number(qtyMin);
+    const max =
+      qtyMax.trim() === "" ? Number.POSITIVE_INFINITY : Number(qtyMax);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    return gifts.filter((g) => {
+      const catName = categoryName(g.gift_category_id);
+      // Toolbar category dropdown
+      const catOkDrop = catFilter === "all" || catName === catFilter;
+
+      // Toolbar free search
+      const hay = `${g.id}|${g.name}|${g.description || ""}|${catName}|${
+        g.quantity
+      }|${g.created_at || ""}`.toLowerCase();
+      const qOk = !q || hay.includes(q);
+
+      // Header filters
+      const nameOk = !nf || g.name.toLowerCase().includes(nf);
+      const catTextOk = !ctf || catName.toLowerCase().includes(ctf);
+      const qtyOk = (g.quantity ?? 0) >= min && (g.quantity ?? 0) <= max;
+      const createdOk =
+        !cf ||
+        String(g.created_at || "")
+          .toLowerCase()
+          .includes(cf);
+
+      return catOkDrop && qOk && nameOk && catTextOk && qtyOk && createdOk;
+    });
+  }, [
+    gifts,
+    query,
+    catFilter,
+    nameFilter,
+    catTextFilter,
+    qtyMin,
+    qtyMax,
+    createdFilter,
+    categories,
+  ]);
+
+  const sorted = useMemo(() => {
+    if (!sortKey) return filtered;
+    const copy = [...filtered];
+
+    const cmpStr = (a?: string | null, b?: string | null) => {
+      const A = (a || "").toLowerCase();
+      const B = (b || "").toLowerCase();
+      return A < B ? -1 : A > B ? 1 : 0;
+    };
+    const cmpNum = (a?: number | null, b?: number | null) =>
+      (a ?? 0) - (b ?? 0);
+
+    copy.sort((a, b) => {
+      let res = 0;
+      if (sortKey === "id") res = cmpNum(a.id as any, b.id as any);
+      else if (sortKey === "name") res = cmpStr(a.name, b.name);
+      else if (sortKey === "category")
+        res = cmpStr(
+          categoryName(a.gift_category_id),
+          categoryName(b.gift_category_id)
+        );
+      else if (sortKey === "qty") res = cmpNum(a.quantity, b.quantity);
+      else if (sortKey === "created")
+        res = cmpStr(a.created_at || "", b.created_at || "");
+      return sortDir === "asc" ? res : -res;
+    });
+
+    return copy;
+  }, [filtered, sortKey, sortDir, categories]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const pageSafe = Math.min(page, totalPages);
   const paged = useMemo(() => {
     const start = (pageSafe - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, pageSafe, pageSize]);
+    return sorted.slice(start, start + pageSize);
+  }, [sorted, pageSafe, pageSize]);
 
+  // Reset page whenever filters/sort/pageSize change
   useEffect(() => {
     setPage(1);
-  }, [query, catFilter, pageSize]);
+  }, [
+    query,
+    catFilter,
+    nameFilter,
+    catTextFilter,
+    qtyMin,
+    qtyMax,
+    createdFilter,
+    sortKey,
+    sortDir,
+    pageSize,
+  ]);
 
   function exportCSV() {
     const headers = [
@@ -148,7 +229,7 @@ export default function GiftsAdmin() {
       "created_at",
     ];
     const lines = [headers.join(",")];
-    filtered.forEach((g) => {
+    sorted.forEach((g) => {
       lines.push(
         [
           g.id,
@@ -178,6 +259,18 @@ export default function GiftsAdmin() {
     return v.includes(",") || v.includes("\n") || v.includes('"')
       ? '"' + v.replace(/"/g, '""') + '"'
       : v;
+  }
+
+  function toggleSort(next: SortKey, canSort: boolean) {
+    if (!canSort) return;
+    setSortKey((prev) => {
+      if (prev !== next) {
+        setSortDir("asc");
+        return next;
+      }
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      return prev;
+    });
   }
 
   return (
@@ -273,7 +366,7 @@ export default function GiftsAdmin() {
               <input
                 id="g-qty"
                 type="number"
-                min={1}
+                min={0}
                 value={quantity}
                 onChange={(e) => setQuantity(Number(e.target.value))}
                 placeholder="0"
@@ -297,7 +390,7 @@ export default function GiftsAdmin() {
           {error && <div className="mt-3 text-sm text-rose-300">{error}</div>}
         </section>
 
-        {/* Filters */}
+        {/* Toolbar */}
         <section className="rounded-2xl p-4 bg-white/5 border border-white/10 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
           <div className="flex-1 flex flex-wrap gap-3 items-center">
             <input
@@ -340,16 +433,143 @@ export default function GiftsAdmin() {
           <div className="overflow-auto">
             <table className="w-full text-sm">
               <thead className="bg-white/10 sticky top-0 z-10">
+                {/* Sortable header row */}
                 <tr className="text-left">
-                  <Th>ID</Th>
-                  <Th>Name</Th>
-                  <Th>Description</Th>
-                  <Th>Category</Th>
-                  <Th>Qty</Th>
-                  <Th>Created</Th>
-                  <Th>Actions</Th>
+                  <Th
+                    sortable
+                    active={sortKey === "id"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "id"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("id", true)}
+                  >
+                    ID
+                  </Th>
+                  <Th
+                    sortable
+                    active={sortKey === "name"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "name"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("name", true)}
+                  >
+                    Name
+                  </Th>
+                  <Th sortable={false} ariaSort="none" title="Not sortable">
+                    Description
+                  </Th>
+                  <Th
+                    sortable
+                    active={sortKey === "category"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "category"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("category", true)}
+                  >
+                    Category
+                  </Th>
+                  <Th
+                    sortable
+                    active={sortKey === "qty"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "qty"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("qty", true)}
+                  >
+                    Qty
+                  </Th>
+                  <Th
+                    sortable
+                    active={sortKey === "created"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "created"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("created", true)}
+                  >
+                    Created
+                  </Th>
+                  <Th sortable={false} ariaSort="none" title="Not sortable">
+                    Actions
+                  </Th>
+                </tr>
+
+                {/* Header filter row */}
+                <tr className="text-left border-t border-white/10">
+                  <th className="p-2 text-[11px] font-normal text-slate-300/80">
+                    —
+                  </th>
+                  <th className="p-2">
+                    <input
+                      value={nameFilter}
+                      onChange={(e) => setNameFilter(e.target.value)}
+                      placeholder="Filter name…"
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                    />
+                  </th>
+                  <th className="p-2 text-slate-300/70 text-[11px]">—</th>
+                  <th className="p-2">
+                    <input
+                      value={catTextFilter}
+                      onChange={(e) => setCatTextFilter(e.target.value)}
+                      placeholder="Filter category…"
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        value={qtyMin}
+                        onChange={(e) => setQtyMin(e.target.value)}
+                        placeholder="Min"
+                        inputMode="numeric"
+                        className="w-20 p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                      />
+                      <input
+                        value={qtyMax}
+                        onChange={(e) => setQtyMax(e.target.value)}
+                        placeholder="Max"
+                        inputMode="numeric"
+                        className="w-20 p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                      />
+                    </div>
+                  </th>
+                  <th className="p-2">
+                    <input
+                      value={createdFilter}
+                      onChange={(e) => setCreatedFilter(e.target.value)}
+                      placeholder="Filter created…"
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                    />
+                  </th>
+                  <th className="p-2 text-slate-300/70 text-[11px]">—</th>
                 </tr>
               </thead>
+
               <tbody>
                 {loading ? (
                   [...Array(pageSize)].map((_, i) => (
@@ -413,8 +633,8 @@ export default function GiftsAdmin() {
           <div className="flex items-center justify-between px-4 py-3 border-t border-white/10 text-xs">
             <div className="opacity-80">
               Showing <strong>{paged.length}</strong> of{" "}
-              <strong>{filtered.length}</strong> result
-              {filtered.length !== 1 ? "s" : ""}
+              <strong>{sorted.length}</strong> result
+              {sorted.length !== 1 ? "s" : ""}
             </div>
             <div className="flex items-center gap-1">
               <button
@@ -442,10 +662,46 @@ export default function GiftsAdmin() {
   );
 }
 
-function Th({ children }: { children: React.ReactNode }) {
+function Th({
+  children,
+  sortable,
+  active,
+  dir,
+  onClick,
+  ariaSort,
+  title,
+}: {
+  children: React.ReactNode;
+  sortable?: boolean;
+  active?: boolean;
+  dir?: "asc" | "desc";
+  onClick?: () => void;
+  ariaSort?: "none" | "ascending" | "descending";
+  title?: string;
+}) {
+  const base =
+    "p-3 text-[11px] font-semibold uppercase tracking-wider text-slate-200/90";
+  if (!sortable) {
+    return (
+      <th className={base + " opacity-70"} aria-sort={ariaSort} title={title}>
+        {children}
+      </th>
+    );
+  }
   return (
-    <th className="p-3 text-[11px] font-semibold uppercase tracking-wider text-slate-200/90">
-      {children}
+    <th className={base} aria-sort={ariaSort} title="Click to sort">
+      <button
+        onClick={onClick}
+        className={
+          "inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-white/10 transition " +
+          (active ? "bg-white/10" : "")
+        }
+      >
+        <span>{children}</span>
+        <span className="text-[10px] opacity-80">
+          {active ? (dir === "asc" ? "▲" : "▼") : "↕"}
+        </span>
+      </button>
     </th>
   );
 }

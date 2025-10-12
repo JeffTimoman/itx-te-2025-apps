@@ -18,6 +18,9 @@ type Registrant = {
 
 type FetchErr = unknown | { error?: string; message?: string } | string;
 
+type SortKey = "id" | "name" | "bureau" | "code" | null;
+type SortDir = "asc" | "desc";
+
 export default function AssignGiftPage() {
   const [gifts, setGifts] = useState<Gift[]>([]);
   const [registrants, setRegistrants] = useState<Registrant[]>([]);
@@ -37,6 +40,16 @@ export default function AssignGiftPage() {
   const [bureauFilter, setBureauFilter] = useState<string>("all");
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
+
+  // Header filters (per-column)
+  const [idFilter, setIdFilter] = useState("");
+  const [nameFilter, setNameFilter] = useState("");
+  const [bureauTextFilter, setBureauTextFilter] = useState("");
+  const [codeFilter, setCodeFilter] = useState("");
+
+  // Sorting
+  const [sortKey, setSortKey] = useState<SortKey>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -100,7 +113,8 @@ export default function AssignGiftPage() {
     return Array.from(s).sort((a, b) => a.localeCompare(b));
   }, [registrants]);
 
-  const filteredRegs = useMemo(() => {
+  // 1) Toolbar filters first (category + global search)
+  const baseFiltered = useMemo(() => {
     const query = q.trim().toLowerCase();
     return registrants.filter((r) => {
       const bOk = bureauFilter === "all" || r.bureau === bureauFilter;
@@ -112,21 +126,84 @@ export default function AssignGiftPage() {
     });
   }, [registrants, q, bureauFilter]);
 
-  useEffect(() => {
-    setPage(1);
-  }, [q, bureauFilter, pageSize]);
+  // 2) Header row filters (per column)
+  const headerFiltered = useMemo(() => {
+    const idf = idFilter.trim().toLowerCase();
+    const nf = nameFilter.trim().toLowerCase();
+    const bf = bureauTextFilter.trim().toLowerCase();
+    const cf = codeFilter.trim().toLowerCase();
 
-  const totalPages = Math.max(1, Math.ceil(filteredRegs.length / pageSize));
+    return baseFiltered.filter((r) => {
+      const idOk = !idf || String(r.id).toLowerCase().includes(idf);
+      const nameOk = !nf || r.name.toLowerCase().includes(nf);
+      const bureauOk = !bf || (r.bureau || "").toLowerCase().includes(bf);
+
+      // match against raw and masked code (so user can type what they see)
+      const rawCode = (r.gacha_code || "").toLowerCase();
+      const masked = maskedCode(r.gacha_code).toLowerCase();
+      const codeOk = !cf || rawCode.includes(cf) || masked.includes(cf);
+
+      return idOk && nameOk && bureauOk && codeOk;
+    });
+  }, [baseFiltered, idFilter, nameFilter, bureauTextFilter, codeFilter]);
+
+  // 3) Sorting
+  const sortedRegs = useMemo(() => {
+    if (!sortKey) return headerFiltered;
+    const copy = [...headerFiltered];
+
+    const cmpStr = (a?: string | null, b?: string | null) => {
+      const A = (a || "").toLowerCase();
+      const B = (b || "").toLowerCase();
+      if (A < B) return -1;
+      if (A > B) return 1;
+      return 0;
+    };
+    const cmpNum = (a?: number | null, b?: number | null) =>
+      (a ?? 0) - (b ?? 0);
+
+    copy.sort((a, b) => {
+      let res = 0;
+      if (sortKey === "id") res = cmpNum(a.id, b.id);
+      else if (sortKey === "name") res = cmpStr(a.name, b.name);
+      else if (sortKey === "bureau")
+        res = cmpStr(a.bureau || "~~~", b.bureau || "~~~"); // empties last
+      else if (sortKey === "code")
+        res = cmpStr(a.gacha_code || "", b.gacha_code || "");
+      return sortDir === "asc" ? res : -res;
+    });
+
+    return copy;
+  }, [headerFiltered, sortKey, sortDir]);
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(sortedRegs.length / pageSize));
   const pageSafe = Math.min(page, totalPages);
   const pagedRegs = useMemo(() => {
     const start = (pageSafe - 1) * pageSize;
-    return filteredRegs.slice(start, start + pageSize);
-  }, [filteredRegs, pageSafe, pageSize]);
+    return sortedRegs.slice(start, start + pageSize);
+  }, [sortedRegs, pageSafe, pageSize]);
+
+  // Reset page on any filtering/sorting/page size change
+  useEffect(() => {
+    setPage(1);
+  }, [
+    q,
+    bureauFilter,
+    pageSize,
+    idFilter,
+    nameFilter,
+    bureauTextFilter,
+    codeFilter,
+    sortKey,
+    sortDir,
+  ]);
 
   function maskedCode(code?: string | null) {
     if (!code) return "";
     const [pre] = code.split("-");
     return `${pre || ""}-**********`;
+    // SUFFIX_LEN=10 assumed
   }
 
   async function handleAssign(e: React.FormEvent) {
@@ -166,13 +243,30 @@ export default function AssignGiftPage() {
     setSelectedRegistrant(null);
     setQ("");
     setBureauFilter("all");
-    setError(null);
+    setIdFilter("");
+    setNameFilter("");
+    setBureauTextFilter("");
+    setCodeFilter("");
+    setSortKey(null);
     setSuccess(null);
+    setError(null);
   }
 
   function copy(text: string) {
     if (!text) return;
     navigator.clipboard.writeText(text);
+  }
+
+  function toggleSort(next: SortKey, canSort: boolean) {
+    if (!canSort) return;
+    setSortKey((prev) => {
+      if (prev !== next) {
+        setSortDir("asc");
+        return next;
+      }
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      return prev;
+    });
   }
 
   return (
@@ -328,14 +422,112 @@ export default function AssignGiftPage() {
               >
                 <table className="w-max sm:w-full text-sm min-w-[640px] table-fixed">
                   <thead className="bg-white/10 sticky top-0 z-10">
+                    {/* Sortable head row */}
                     <tr className="text-left">
-                      <Th>ID</Th>
-                      <Th>Name</Th>
-                      <Th>Bureau</Th>
-                      <Th>Gacha Code</Th>
-                      <Th></Th>
+                      <Th
+                        sortable
+                        active={sortKey === "id"}
+                        dir={sortDir}
+                        ariaSort={
+                          sortKey === "id"
+                            ? sortDir === "asc"
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                        }
+                        onClick={() => toggleSort("id", true)}
+                      >
+                        ID
+                      </Th>
+                      <Th
+                        sortable
+                        active={sortKey === "name"}
+                        dir={sortDir}
+                        ariaSort={
+                          sortKey === "name"
+                            ? sortDir === "asc"
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                        }
+                        onClick={() => toggleSort("name", true)}
+                      >
+                        Name
+                      </Th>
+                      <Th
+                        sortable
+                        active={sortKey === "bureau"}
+                        dir={sortDir}
+                        ariaSort={
+                          sortKey === "bureau"
+                            ? sortDir === "asc"
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                        }
+                        onClick={() => toggleSort("bureau", true)}
+                      >
+                        Bureau
+                      </Th>
+                      <Th
+                        sortable
+                        active={sortKey === "code"}
+                        dir={sortDir}
+                        ariaSort={
+                          sortKey === "code"
+                            ? sortDir === "asc"
+                              ? "ascending"
+                              : "descending"
+                            : "none"
+                        }
+                        onClick={() => toggleSort("code", true)}
+                      >
+                        Gacha Code
+                      </Th>
+                      <Th sortable={false} ariaSort="none" title="Not sortable">
+                        {/* actions/selection */}
+                      </Th>
+                    </tr>
+
+                    {/* Header filter row */}
+                    <tr className="text-left border-t border-white/10">
+                      <th className="p-2">
+                        <input
+                          value={idFilter}
+                          onChange={(e) => setIdFilter(e.target.value)}
+                          placeholder="Filter ID…"
+                          inputMode="numeric"
+                          className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                        />
+                      </th>
+                      <th className="p-2">
+                        <input
+                          value={nameFilter}
+                          onChange={(e) => setNameFilter(e.target.value)}
+                          placeholder="Filter name…"
+                          className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                        />
+                      </th>
+                      <th className="p-2">
+                        <input
+                          value={bureauTextFilter}
+                          onChange={(e) => setBureauTextFilter(e.target.value)}
+                          placeholder="Filter bureau…"
+                          className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                        />
+                      </th>
+                      <th className="p-2">
+                        <input
+                          value={codeFilter}
+                          onChange={(e) => setCodeFilter(e.target.value)}
+                          placeholder="Filter code…"
+                          className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                        />
+                      </th>
+                      <th className="p-2 text-slate-300/70 text-[11px]">—</th>
                     </tr>
                   </thead>
+
                   <tbody>
                     {fetching ? (
                       [...Array(8)].map((_, i) => (
@@ -353,7 +545,12 @@ export default function AssignGiftPage() {
                           className="p-6 text-center text-slate-300"
                           colSpan={5}
                         >
-                          {q || bureauFilter !== "all"
+                          {q ||
+                          bureauFilter !== "all" ||
+                          idFilter ||
+                          nameFilter ||
+                          bureauTextFilter ||
+                          codeFilter
                             ? "No results match your filters."
                             : "No registrants found."}
                         </td>
@@ -418,6 +615,15 @@ export default function AssignGiftPage() {
                               )}
                             </div>
                           </td>
+                          <td className="p-3 whitespace-nowrap">
+                            {selectedRegistrant === r.id ? (
+                              <span className="text-xs px-2 py-1 rounded bg-indigo-500/20 border border-indigo-400/40">
+                                Selected
+                              </span>
+                            ) : (
+                              <span className="text-xs opacity-60">—</span>
+                            )}
+                          </td>
                         </tr>
                       ))
                     )}
@@ -429,8 +635,8 @@ export default function AssignGiftPage() {
             {/* Pagination */}
             <div className="flex items-center justify-between px-3 py-2 border-t border-white/10 text-xs">
               <div className="opacity-80">
-                Page {pageSafe} / {totalPages} • {filteredRegs.length} result
-                {filteredRegs.length === 1 ? "" : "s"}
+                Page {pageSafe} / {totalPages} • {sortedRegs.length} result
+                {sortedRegs.length === 1 ? "" : "s"}
               </div>
               <div className="flex items-center gap-1">
                 <button
@@ -479,10 +685,46 @@ export default function AssignGiftPage() {
   );
 }
 
-function Th({ children }: { children?: React.ReactNode }) {
+function Th({
+  children,
+  sortable,
+  active,
+  dir,
+  onClick,
+  ariaSort,
+  title,
+}: {
+  children?: React.ReactNode;
+  sortable?: boolean;
+  active?: boolean;
+  dir?: "asc" | "desc";
+  onClick?: () => void;
+  ariaSort?: "none" | "ascending" | "descending";
+  title?: string;
+}) {
+  const base =
+    "p-3 text-[11px] font-semibold uppercase tracking-wider text-slate-200/90 whitespace-nowrap";
+  if (!sortable) {
+    return (
+      <th className={base + " opacity-70"} aria-sort={ariaSort} title={title}>
+        {children}
+      </th>
+    );
+  }
   return (
-    <th className="p-3 text-[11px] font-semibold uppercase tracking-wider text-slate-200/90 whitespace-nowrap">
-      {children}
+    <th className={base} aria-sort={ariaSort} title="Click to sort">
+      <button
+        onClick={onClick}
+        className={
+          "inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-white/10 transition " +
+          (active ? "bg-white/10" : "")
+        }
+      >
+        <span>{children}</span>
+        <span className="text-[10px] opacity-80">
+          {active ? (dir === "asc" ? "▲" : "▼") : "↕"}
+        </span>
+      </button>
     </th>
   );
 }

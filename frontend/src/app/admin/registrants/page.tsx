@@ -1,51 +1,79 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import api, { Registrant, resendVerificationEmail } from "../../../lib/api/registrants";
 import AdminHeader from "../../../components/AdminHeader";
 
+type Winner = {
+  name: string;
+  gacha_code?: string | null;
+  is_assigned?: string | null;
+};
+type Row = {
+  gift_id: number;
+  gift_name: string;
+  category_name?: string | null;
+  winners: Winner[];
+};
+type FetchError = { error?: string; message?: string } | string | unknown;
+
+type SortKey = "gift" | "category" | "winners" | null;
+type SortDir = "asc" | "desc";
+
 /**
- * RegistrantsAdminPage — polished CRUD dashboard (read + create)
+ * WinnersPage — aligned with RegistrantsAdminPage UX
  *
- * UX upgrades
- * - Top toolbar: refresh, client-side search & bureau filter, page size
- * - Inline-validated create form with loading state
- * - Responsive table with sticky header, status chips, copyable code
- * - Empty state, error banner, skeletons, and CSV export
+ * - Toolbar: refresh, search, category filter, page size, CSV export
+ * - Table: sticky header, header filter row, per-column sorting
+ * - Sortable columns: Gift, Category, Winners (count)
+ * - Non-sortable: No
+ * - Filters in header row: Gift (text), Category (text), Winners (text + Assigned status)
  */
-export default function RegistrantsAdminPage() {
-  const [registrants, setRegistrants] = useState<Registrant[]>([]);
+export default function WinnersPage() {
+  const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [bureau, setBureau] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // Toolbar state
   const [query, setQuery] = useState("");
-  const [bureauFilter, setBureauFilter] = useState<string>("all");
+  const [category, setCategory] = useState<string>("all");
   const [pageSize, setPageSize] = useState<number>(10);
   const [page, setPage] = useState<number>(1);
 
-  function toMessage(err: unknown) {
-    if (!err) return String(err);
-    if (typeof err === "string") return err;
-    if (err instanceof Error) return err.message;
+  // Header filter state (per-column)
+  const [giftFilter, setGiftFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [winnerFilter, setWinnerFilter] = useState("");
+  const [assignedFilter, setAssignedFilter] = useState<
+    "all" | "assigned" | "unassigned"
+  >("all");
+
+  // Sorting
+  const [sortKey, setSortKey] = useState<SortKey>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const toMsg = (e: FetchError) => {
+    if (typeof e === "string") return e;
+    if (!e || typeof e !== "object") return String(e);
+    const obj = e as Record<string, unknown>;
+    if (typeof obj.error === "string") return obj.error;
+    if (typeof obj.message === "string") return obj.message;
     try {
-      return JSON.stringify(err);
+      return JSON.stringify(obj);
     } catch {
-      return String(err);
+      return String(obj);
     }
-  }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.listRegistrants();
-      setRegistrants(data);
-    } catch (err) {
-      setError(toMessage(err));
+      const res = await fetch("/api/admin/winners");
+      if (!res.ok) throw await res.json();
+      const data = (await res.json()) as Row[];
+      setRows(data || []);
+    } catch (e) {
+      setError(toMsg(e));
     } finally {
       setLoading(false);
     }
@@ -55,93 +83,152 @@ export default function RegistrantsAdminPage() {
     load();
   }, [load]);
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    if (!name.trim()) return setError("Name is required");
-    try {
-      setCreating(true);
-      const created = await api.createRegistrant({
-        name: name.trim(),
-        email: email.trim() || null,
-        bureau: bureau.trim() || null,
-      });
-      setRegistrants((r) => [created, ...r]);
-      setName("");
-      setEmail("");
-      setBureau("");
-    } catch (err) {
-      setError(toMessage(err));
-    } finally {
-      setCreating(false);
-    }
-  }
+  // Derived
+  const categories = useMemo(() => {
+    const s = new Set<string>();
+    rows.forEach((r) => r.category_name && s.add(r.category_name));
+    return Array.from(s).sort((a, b) => a.localeCompare(b));
+  }, [rows]);
 
-  // --- Derived data ---
-  const bureaus = useMemo(() => {
-    const set = new Set<string>();
-    registrants.forEach((r) => r.bureau && set.add(r.bureau));
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [registrants]);
-
+  // Combined filters (toolbar + header filters)
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = registrants.filter((r) => {
-      const bureauOk = bureauFilter === "all" || r.bureau === bureauFilter;
-      if (!q) return bureauOk;
-      const hay = `${r.id}|${r.name}|${r.email || ""}|${r.bureau || ""}|${
-        r.gacha_code || ""
-      }`.toLowerCase();
-      return bureauOk && hay.includes(q);
-    });
-    return list;
-  }, [registrants, query, bureauFilter]);
+    const gf = giftFilter.trim().toLowerCase();
+    const cf = categoryFilter.trim().toLowerCase();
+    const wf = winnerFilter.trim().toLowerCase();
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    return rows.filter((r) => {
+      // Toolbar category dropdown
+      const catOkToolbar =
+        category === "all" || (r.category_name || "") === category;
+
+      // Toolbar free text
+      const winnersHay = (r.winners || [])
+        .map((w) => `${w.name}|${w.gacha_code || ""}|${w.is_assigned || "N"}`)
+        .join("|")
+        .toLowerCase();
+      const hay = `${r.gift_name}|${
+        r.category_name || ""
+      }|${winnersHay}`.toLowerCase();
+      const qOk = !q || hay.includes(q);
+
+      // Header: gift & category text filters
+      const gfOk = !gf || r.gift_name.toLowerCase().includes(gf);
+      const cfOk = !cf || (r.category_name || "").toLowerCase().includes(cf);
+
+      // Header: winners (text + assigned filter)
+      const assignedOk = (w: Winner) =>
+        assignedFilter === "all" ||
+        (assignedFilter === "assigned"
+          ? w.is_assigned === "Y"
+          : w.is_assigned !== "Y");
+
+      const anyWinnerMatch =
+        r.winners && r.winners.length > 0
+          ? r.winners.some((w) => {
+              const text = `${w.name}|${w.gacha_code || ""}`.toLowerCase();
+              return (!wf || text.includes(wf)) && assignedOk(w);
+            })
+          : // no winners: only pass if no specific winner text and not requiring "assigned"
+            !wf && assignedFilter !== "assigned";
+
+      return catOkToolbar && qOk && gfOk && cfOk && anyWinnerMatch;
+    });
+  }, [
+    rows,
+    query,
+    category,
+    giftFilter,
+    categoryFilter,
+    winnerFilter,
+    assignedFilter,
+  ]);
+
+  // Sorting
+  const sorted = useMemo(() => {
+    if (!sortKey) return filtered;
+    const copy = [...filtered];
+
+    const cmpStr = (a?: string | null, b?: string | null) => {
+      const A = (a || "").toLowerCase();
+      const B = (b || "").toLowerCase();
+      return A < B ? -1 : A > B ? 1 : 0;
+    };
+
+    copy.sort((a, b) => {
+      let res = 0;
+      if (sortKey === "gift") res = cmpStr(a.gift_name, b.gift_name);
+      else if (sortKey === "category")
+        res = cmpStr(
+          a.category_name || "~~~",
+          b.category_name || "~~~"
+        ); // empties last
+      else if (sortKey === "winners")
+        res = (a.winners?.length ?? 0) - (b.winners?.length ?? 0);
+      return sortDir === "asc" ? res : -res;
+    });
+    return copy;
+  }, [filtered, sortKey, sortDir]);
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const pageSafe = Math.min(page, totalPages);
   const paged = useMemo(() => {
     const start = (pageSafe - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, pageSafe, pageSize]);
+    return sorted.slice(start, start + pageSize);
+  }, [sorted, pageSafe, pageSize]);
 
+  // Reset page on filter/sort/page size change
   useEffect(() => {
-    // reset to page 1 on filter/query change
     setPage(1);
-  }, [query, bureauFilter, pageSize]);
+  }, [
+    query,
+    category,
+    giftFilter,
+    categoryFilter,
+    winnerFilter,
+    assignedFilter,
+    sortKey,
+    sortDir,
+    pageSize,
+  ]);
+
+  function copy(text: string) {
+    navigator.clipboard.writeText(text);
+  }
 
   function exportCSV() {
-    const headers = [
-      "id",
-      "name",
-      "gifts",
-      "gacha_code",
-      "email",
-      "bureau",
-      "is_verified",
-      "is_win",
-      "created_at",
-    ];
-    const rows = filtered.map((r) => [
-      r.id,
-      escapeCSV(r.name || ""),
-      escapeCSV(
-        r.gifts && r.gifts.length ? r.gifts.map((g) => g.name).join("; ") : ""
-      ),
-      r.gacha_code || "",
-      r.email || "",
-      r.bureau || "",
-      r.is_verified || "",
-      r.is_win || "",
-      r.created_at || "",
-    ]);
-    const csv = [headers.join(","), ...rows.map((row) => row.join(","))].join(
-      "\n"
-    );
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const headers = ["no", "gift", "category", "winner_name", "winner_code"];
+    const lines: string[] = [headers.join(",")];
+    sorted.forEach((r, idx) => {
+      if (!r.winners || r.winners.length === 0) {
+        lines.push(
+          [idx + 1, esc(r.gift_name), esc(r.category_name || ""), "", ""].join(
+            ","
+          )
+        );
+      } else {
+        r.winners.forEach((w) => {
+          const code = w.is_assigned === "Y" ? "" : w.gacha_code || "";
+          lines.push(
+            [
+              idx + 1,
+              esc(r.gift_name),
+              esc(r.category_name || ""),
+              esc(w.name),
+              esc(code),
+            ].join(",")
+          );
+        });
+      }
+    });
+    const blob = new Blob([lines.join("\n")], {
+      type: "text/csv;charset=utf-8;",
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `registrants_${new Date()
+    a.download = `winners_${new Date()
       .toISOString()
       .slice(0, 19)
       .replace(/[:T]/g, "-")}.csv`;
@@ -149,22 +236,28 @@ export default function RegistrantsAdminPage() {
     URL.revokeObjectURL(url);
   }
 
-  function escapeCSV(val: string) {
-    if (val.includes(",") || val.includes("\n") || val.includes('"')) {
-      return '"' + val.replace(/"/g, '""') + '"';
-    }
-    return val;
+  function esc(v: string) {
+    return v.includes(",") || v.includes("\n") || v.includes('"')
+      ? '"' + v.replace(/"/g, '""') + '"'
+      : v;
   }
 
-  function copy(text: string) {
-    navigator.clipboard.writeText(text);
+  // Sort toggler
+  function toggleSort(next: SortKey, canSort: boolean) {
+    if (!canSort) return;
+    setSortKey((prev) => {
+      if (prev !== next) {
+        setSortDir("asc");
+        return next;
+      }
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      return prev;
+    });
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100">
-      {/* Header */}
-      {/* Replaced by shared AdminHeader component */}
-      <AdminHeader title="Registrants">
+      <AdminHeader title="Gift Winners">
         <button
           onClick={load}
           disabled={loading}
@@ -180,103 +273,28 @@ export default function RegistrantsAdminPage() {
         </button>
       </AdminHeader>
 
-      {/* Main */}
       <main className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-        {/* Create card */}
-        <section className="rounded-2xl p-6 bg-white/5 border border-white/10">
-          <h2 className="text-lg font-bold">Create registrant</h2>
-          <form
-            onSubmit={handleCreate}
-            className="mt-4 grid gap-3 sm:grid-cols-3"
-          >
-            <div className="sm:col-span-1">
-              <label
-                htmlFor="r-name"
-                className="block text-xs uppercase tracking-wider opacity-80 mb-1"
-              >
-                Name
-              </label>
-              <input
-                id="r-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g., Jefferson"
-                className={`w-full p-3 rounded-xl bg-white/10 border ${
-                  name.trim() ? "border-white/20" : "border-red-400/40"
-                } outline-none focus:ring-2 focus:ring-indigo-400/60`}
-              />
-            </div>
-            <div className="sm:col-span-1">
-              <label
-                htmlFor="r-email"
-                className="block text-xs uppercase tracking-wider opacity-80 mb-1"
-              >
-                Email (optional)
-              </label>
-              <input
-                id="r-email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@company.com"
-                className="w-full p-3 rounded-xl bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
-                inputMode="email"
-              />
-            </div>
-            <div className="sm:col-span-1">
-              <label
-                htmlFor="r-bureau"
-                className="block text-xs uppercase tracking-wider opacity-80 mb-1"
-              >
-                Bureau
-              </label>
-              <input
-                id="r-bureau"
-                value={bureau}
-                onChange={(e) => setBureau(e.target.value)}
-                placeholder="e.g., ITX-B"
-                className="w-full p-3 rounded-xl bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
-              />
-            </div>
-            <div className="sm:col-span-3 flex justify-end">
-              <button
-                className="relative inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold bg-emerald-500/90 hover:bg-emerald-500 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-slate-900"
-                disabled={creating}
-              >
-                {creating && (
-                  <span className="absolute left-4 h-4 w-4 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
-                )}
-                {creating ? "Creating…" : "Create"}
-              </button>
-            </div>
-          </form>
-          {error && <div className="mt-3 text-sm text-rose-300">{error}</div>}
-        </section>
-
         {/* Toolbar */}
         <section className="rounded-2xl p-4 bg-white/5 border border-white/10 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
           <div className="flex-1 flex flex-wrap gap-3 items-center">
-            <div className="relative">
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search (name, email, bureau, code)"
-                className="w-72 max-w-full p-2.5 pl-3 rounded-xl bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
-              />
-            </div>
-            <div>
-              <select
-                value={bureauFilter}
-                onChange={(e) => setBureauFilter(e.target.value)}
-                className="p-2.5 rounded-xl bg-white/10 border border-white/20"
-              >
-                <option value="all">All bureaus</option>
-                {bureaus.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search gift, category, winner name/code"
+              className="w-72 max-w-full p-2.5 rounded-xl bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+            />
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="p-2.5 rounded-xl bg-white/10 border border-white/20"
+            >
+              <option value="all">All categories</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="flex gap-2 items-center">
             <span className="text-xs opacity-70">Rows / page</span>
@@ -294,29 +312,124 @@ export default function RegistrantsAdminPage() {
           </div>
         </section>
 
-        {/* Table card */}
+        {/* Error */}
+        {error && (
+          <div className="rounded-2xl p-4 bg-rose-900/40 border border-rose-400/40 text-rose-100">
+            {error}
+          </div>
+        )}
+
+        {/* Table */}
         <section className="rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
           <div className="overflow-auto">
             <table className="w-full text-sm">
               <thead className="bg-white/10 sticky top-0 z-10">
+                {/* Sortable header row */}
                 <tr className="text-left">
-                  <Th>ID</Th>
-                  <Th>Name</Th>
-                  <Th>Gifts</Th>
-                  <Th>Code</Th>
-                  <Th>Email</Th>
-                  <Th>Emailed</Th>
-                  <Th>Bureau</Th>
-                  <Th>Verified</Th>
-                  <Th>Win</Th>
-                  <Th>Created</Th>
+                  <Th sortable={false} ariaSort="none" title="Not sortable">
+                    No
+                  </Th>
+
+                  <Th
+                    sortable
+                    active={sortKey === "gift"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "gift"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("gift", true)}
+                  >
+                    Gift
+                  </Th>
+
+                  <Th
+                    sortable
+                    active={sortKey === "category"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "category"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("category", true)}
+                  >
+                    Category
+                  </Th>
+
+                  <Th
+                    sortable
+                    active={sortKey === "winners"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "winners"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("winners", true)}
+                  >
+                    Winners
+                  </Th>
+                </tr>
+
+                {/* Header filter inputs (sticky) */}
+                <tr className="text-left border-t border-white/10">
+                  <th className="p-2 text-[11px] font-normal text-slate-300/80">
+                    —
+                  </th>
+                  <th className="p-2">
+                    <input
+                      value={giftFilter}
+                      onChange={(e) => setGiftFilter(e.target.value)}
+                      placeholder="Filter gift…"
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      value={categoryFilter}
+                      onChange={(e) => setCategoryFilter(e.target.value)}
+                      placeholder="Filter category…"
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <div className="flex gap-2">
+                      <input
+                        value={winnerFilter}
+                        onChange={(e) => setWinnerFilter(e.target.value)}
+                        placeholder="Filter winner name/code…"
+                        className="flex-1 p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                      />
+                      <select
+                        value={assignedFilter}
+                        onChange={(e) =>
+                          setAssignedFilter(e.target.value as any)
+                        }
+                        className="p-2 rounded-lg bg-white/10 border border-white/20"
+                        title="Assignment status"
+                      >
+                        <option value="all">All</option>
+                        <option value="assigned">Assigned</option>
+                        <option value="unassigned">Unassigned</option>
+                      </select>
+                    </div>
+                  </th>
                 </tr>
               </thead>
+
               <tbody>
                 {loading ? (
                   [...Array(pageSize)].map((_, i) => (
                     <tr key={i} className="border-t border-white/10">
-                      {[...Array(9)].map((__, j) => (
+                      {[...Array(4)].map((__, j) => (
                         <td key={j} className="p-3">
                           <div className="h-4 w-24 sm:w-32 bg-white/10 rounded animate-pulse" />
                         </td>
@@ -325,73 +438,51 @@ export default function RegistrantsAdminPage() {
                   ))
                 ) : paged.length === 0 ? (
                   <tr>
-                    <td className="p-6 text-center text-slate-300" colSpan={9}>
-                      No registrants found.
+                    <td className="p-6 text-center text-slate-300" colSpan={4}>
+                      No winners found.
                     </td>
                   </tr>
                 ) : (
-                  paged.map((r) => (
+                  paged.map((r, idx) => (
                     <tr
-                      key={r.id}
+                      key={r.gift_id}
                       className="border-t border-white/10 hover:bg-white/5"
                     >
-                      <td className="p-3 font-mono opacity-80 whitespace-nowrap">
-                        {r.id}
+                      <td className="p-3 whitespace-nowrap">
+                        {(pageSafe - 1) * pageSize + idx + 1}
                       </td>
-                      <td className="p-3 min-w-[12rem]">{r.name}</td>
-                      <td className="p-3 min-w-[12rem]">
-                        {r.gifts && r.gifts.length ? (
-                          r.gifts.map((g) => g.name).join(", ")
-                        ) : (
+                      <td className="p-3 min-w-[16rem]">{r.gift_name}</td>
+                      <td className="p-3 whitespace-nowrap">
+                        {r.category_name || (
                           <span className="opacity-60">—</span>
                         )}
                       </td>
-                      <td className="p-3 whitespace-nowrap">
-                        <div className="inline-flex items-center gap-2">
-                          <span className="font-mono">{r.gacha_code}</span>
-                          {r.gacha_code && (
-                            <button
-                              onClick={() => copy(r.gacha_code!)}
-                              className="text-[11px] px-2 py-0.5 rounded bg-white/10 border border-white/20 hover:bg-white/15"
-                            >
-                              Copy
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                      <td className="p-3 min-w-[14rem]">
-                        {r.email || <span className="opacity-60">—</span>}
-                      </td>
-                      <td className="p-3 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <Chip ok={r.is_send_email === 'Y'} okText="Sent" noText="Not sent" />
-                          <ResendButton id={r.id} onSent={() => {
-                            // update local state to reflect sent status
-                            setRegistrants((arr) => arr.map((x) => (x.id === r.id ? { ...x, is_send_email: 'Y' } : x)));
-                          }} />
-                        </div>
-                      </td>
-                      <td className="p-3 whitespace-nowrap">
-                        {r.bureau || <span className="opacity-60">—</span>}
-                      </td>
                       <td className="p-3">
-                        <Chip
-                          ok={r.is_verified === "Y"}
-                          okText="Verified"
-                          noText="Unverified"
-                          okClass="bg-emerald-500/20 text-emerald-200 border-emerald-400/40"
-                        />
-                      </td>
-                      <td className="p-3">
-                        <Chip
-                          ok={r.is_win === "Y"}
-                          okText="Winner"
-                          noText="—"
-                          okClass="bg-amber-400/30 text-amber-950 border-amber-400/50"
-                        />
-                      </td>
-                      <td className="p-3 whitespace-nowrap">
-                        {new Date(r.created_at || "").toLocaleString()}
+                        {!r.winners || r.winners.length === 0 ? (
+                          <span className="opacity-60">—</span>
+                        ) : (
+                          <ul className="flex flex-wrap gap-1.5">
+                            {r.winners.map((w, i) => (
+                              <li
+                                key={i}
+                                className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-white/10 border border-white/20"
+                              >
+                                <span className="text-[13px] font-medium">
+                                  {w.name}
+                                </span>
+                                {w.is_assigned !== "Y" && w.gacha_code && (
+                                  <button
+                                    onClick={() => copy(w.gacha_code!)}
+                                    className="text-[11px] px-1.5 py-0.5 rounded bg-white/10 border border-white/20 hover:bg-white/15"
+                                    title="Copy code"
+                                  >
+                                    {w.gacha_code}
+                                  </button>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -404,8 +495,8 @@ export default function RegistrantsAdminPage() {
           <div className="flex items-center justify-between px-4 py-3 border-t border-white/10 text-xs">
             <div className="opacity-80">
               Showing <strong>{paged.length}</strong> of{" "}
-              <strong>{filtered.length}</strong> result
-              {filtered.length !== 1 ? "s" : ""}
+              <strong>{sorted.length}</strong> result
+              {sorted.length !== 1 ? "s" : ""}
             </div>
             <div className="flex items-center gap-1">
               <button
@@ -433,66 +524,46 @@ export default function RegistrantsAdminPage() {
   );
 }
 
-// --- Small UI bits ---
-function Th({ children }: { children: React.ReactNode }) {
-  return (
-    <th className="p-3 text-[11px] font-semibold uppercase tracking-wider text-slate-200/90">
-      {children}
-    </th>
-  );
-}
-
-function Chip({
-  ok,
-  okText,
-  noText,
-  okClass,
+function Th({
+  children,
+  sortable,
+  active,
+  dir,
+  onClick,
+  ariaSort,
+  title,
 }: {
-  ok: boolean;
-  okText: string;
-  noText: string;
-  okClass?: string;
+  children: React.ReactNode;
+  sortable?: boolean;
+  active?: boolean;
+  dir?: "asc" | "desc";
+  onClick?: () => void;
+  ariaSort?: "none" | "ascending" | "descending";
+  title?: string;
 }) {
-  const base = "inline-block px-2 py-1 rounded border text-[11px]";
-  return (
-    <span
-      className={`${base} ${
-        ok
-          ? okClass ||
-            "bg-emerald-500/20 text-emerald-200 border-emerald-400/40"
-          : "bg-white/10 text-slate-200 border-white/20"
-      }`}
-    >
-      {ok ? okText : noText}
-    </span>
-  );
-}
-
-function ResendButton({ id, onSent }: { id: number; onSent?: () => void }) {
-  const [loading, setLoading] = React.useState(false);
-  async function handle() {
-    if (loading) return;
-    setLoading(true);
-    try {
-      const res = await resendVerificationEmail(id);
-      if (res && res.ok) {
-        if (onSent) onSent();
-      } else {
-        alert('Failed to resend email');
-      }
-    } catch (err) {
-      alert('Failed to resend email: ' + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setLoading(false);
-    }
+  const base =
+    "p-3 text-[11px] font-semibold uppercase tracking-wider text-slate-200/90";
+  if (!sortable) {
+    return (
+      <th className={base + " opacity-70"} aria-sort={ariaSort} title={title}>
+        {children}
+      </th>
+    );
   }
   return (
-    <button
-      onClick={handle}
-      disabled={loading}
-      className="text-[11px] px-2 py-0.5 rounded bg-white/10 border border-white/20 hover:bg-white/15"
-    >
-      {loading ? 'Sending…' : 'Resend'}
-    </button>
+    <th className={base} aria-sort={ariaSort} title="Click to sort">
+      <button
+        onClick={onClick}
+        className={
+          "inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-white/10 transition " +
+          (active ? "bg-white/10" : "")
+        }
+      >
+        <span>{children}</span>
+        <span className="text-[10px] opacity-80">
+          {active ? (dir === "asc" ? "▲" : "▼") : "↕"}
+        </span>
+      </button>
+    </th>
   );
 }
