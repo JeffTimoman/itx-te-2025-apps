@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 type Gift = { id: number; name: string; quantity: number; awarded: number };
 type Registrant = {
@@ -31,6 +37,21 @@ export default function AssignGiftPage() {
   const [bureauFilter, setBureauFilter] = useState<string>("all");
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
+
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Keyboard shortcut: Ctrl/Cmd + K to focus search
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const isCmdK = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k";
+      if (isCmdK) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const toMsg = (e: FetchErr) => {
     if (typeof e === "string") return e;
@@ -155,7 +176,6 @@ export default function AssignGiftPage() {
   }
 
   return (
-    // ★ Use min-h-screen and hide page-level horizontal overflow to prevent bleed on iOS
     <div className="min-h-screen overflow-x-hidden bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100">
       {/* Header */}
       <header className="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-white/5 border-b border-white/10">
@@ -233,12 +253,66 @@ export default function AssignGiftPage() {
           {loading && <div className="text-xs opacity-80">Working…</div>}
         </section>
 
-        {/* Right: Registrants (mobile-safe scrollable) */}
-        {/* ★ Make the section a column with min-h-0 so inner scroller can size correctly */}
+        {/* Right: Registrants */}
         <section className="rounded-2xl p-4 sm:p-6 bg-white/5 border border-white/10 space-y-4 flex flex-col min-h-[70vh] min-h-[70svh] min-w-0">
           <h2 className="text-lg font-bold">2) Pick winner</h2>
 
-          {/* Filters … (unchanged) */}
+          {/* === Filters (searchable table) === */}
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+            <div className="flex-1">
+              <label className="text-xs opacity-80 block mb-1">
+                Search (Ctrl/Cmd + K)
+              </label>
+              <div className="relative">
+                <input
+                  ref={searchInputRef}
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Search by ID, name, bureau, or code…"
+                  className="w-full p-3 pr-10 rounded-xl bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                  aria-label="Search registrants"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs opacity-70">
+                  ⌘K
+                </span>
+              </div>
+            </div>
+
+            <div className="min-w-[10rem]">
+              <label className="text-xs opacity-80 block mb-1">Bureau</label>
+              <select
+                value={bureauFilter}
+                onChange={(e) => setBureauFilter(e.target.value)}
+                className="w-full p-3 rounded-xl bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                aria-label="Filter by bureau"
+              >
+                <option value="all">All bureaus</option>
+                {bureaus.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="min-w-[9rem]">
+              <label className="text-xs opacity-80 block mb-1">
+                Rows per page
+              </label>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="w-full p-3 rounded-xl bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                aria-label="Rows per page"
+              >
+                {[5, 10, 20, 50, 100].map((n) => (
+                  <option key={n} value={n}>
+                    {n} / page
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
           {/* Scroller */}
           <div className="flex-1 min-h-0 rounded-xl border border-white/10">
@@ -252,8 +326,6 @@ export default function AssignGiftPage() {
                 role="region"
                 aria-label="Registrants table (scroll horizontally on mobile)"
               >
-                {/* On phones, let content define width -> horizontal scroll.
-            On >=sm, table fills container. */}
                 <table className="w-max sm:w-full text-sm min-w-[640px] table-fixed">
                   <thead className="bg-white/10 sticky top-0 z-10">
                     <tr className="text-left">
@@ -281,7 +353,9 @@ export default function AssignGiftPage() {
                           className="p-6 text-center text-slate-300"
                           colSpan={5}
                         >
-                          No registrants found.
+                          {q || bureauFilter !== "all"
+                            ? "No results match your filters."
+                            : "No registrants found."}
                         </td>
                       </tr>
                     ) : (
@@ -303,21 +377,22 @@ export default function AssignGiftPage() {
                               : ""
                           }`}
                         >
-                          {/* Make cells truncatable / breakable to avoid hard overflow */}
                           <td className="p-3 font-mono opacity-80 whitespace-nowrap max-w-[6rem] truncate">
-                            {r.id}
+                            <Highlight text={String(r.id)} q={q} />
                           </td>
                           <td className="p-3">
                             <div
                               className="max-w-[14rem] sm:max-w-none truncate"
                               title={r.name}
                             >
-                              {r.name}
+                              <Highlight text={r.name} q={q} />
                             </div>
                           </td>
                           <td className="p-3">
                             <div className="max-w-[10rem] truncate break-words">
-                              {r.bureau || (
+                              {r.bureau ? (
+                                <Highlight text={r.bureau} q={q} />
+                              ) : (
                                 <span className="opacity-60">—</span>
                               )}
                             </div>
@@ -328,7 +403,10 @@ export default function AssignGiftPage() {
                                 className="font-mono truncate break-words"
                                 title={r.gacha_code || ""}
                               >
-                                {maskedCode(r.gacha_code)}
+                                <Highlight
+                                  text={maskedCode(r.gacha_code)}
+                                  q={q}
+                                />
                               </span>
                               {r.gacha_code && (
                                 <button
@@ -340,14 +418,6 @@ export default function AssignGiftPage() {
                               )}
                             </div>
                           </td>
-                          <td className="p-3 text-right">
-                            <button
-                              onClick={() => setSelectedRegistrant(r.id)}
-                              className="px-3 py-1.5 rounded-lg bg-indigo-500/90 hover:bg-indigo-500 text-xs"
-                            >
-                              Select
-                            </button>
-                          </td>
                         </tr>
                       ))
                     )}
@@ -356,10 +426,11 @@ export default function AssignGiftPage() {
               </div>
             </div>
 
-            {/* Pagination (outside the scroller) */}
+            {/* Pagination */}
             <div className="flex items-center justify-between px-3 py-2 border-t border-white/10 text-xs">
               <div className="opacity-80">
-                Page {pageSafe} / {totalPages} • {filteredRegs.length} total
+                Page {pageSafe} / {totalPages} • {filteredRegs.length} result
+                {filteredRegs.length === 1 ? "" : "s"}
               </div>
               <div className="flex items-center gap-1">
                 <button
@@ -413,5 +484,25 @@ function Th({ children }: { children?: React.ReactNode }) {
     <th className="p-3 text-[11px] font-semibold uppercase tracking-wider text-slate-200/90 whitespace-nowrap">
       {children}
     </th>
+  );
+}
+
+/** Small helper to highlight the matched part of a string */
+function Highlight({ text, q }: { text: string; q: string }) {
+  const query = q.trim();
+  if (!query) return <>{text}</>;
+  const i = text.toLowerCase().indexOf(query.toLowerCase());
+  if (i === -1) return <>{text}</>;
+  const before = text.slice(0, i);
+  const match = text.slice(i, i + query.length);
+  const after = text.slice(i + query.length);
+  return (
+    <>
+      {before}
+      <mark className="rounded px-0.5 bg-yellow-300/30 text-yellow-100">
+        {match}
+      </mark>
+      {after}
+    </>
   );
 }
