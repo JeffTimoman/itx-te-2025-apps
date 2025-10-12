@@ -609,15 +609,6 @@ export default function AssignGiftPage() {
                               )}
                             </div>
                           </td>
-                          <td className="p-3 whitespace-nowrap">
-                            {selectedRegistrant === r.id ? (
-                              <span className="text-xs px-2 py-1 rounded bg-indigo-500/20 border border-indigo-400/40">
-                                Selected
-                              </span>
-                            ) : (
-                              <span className="text-xs opacity-60">—</span>
-                            )}
-                          </td>
                         </tr>
                       ))
                     )}
