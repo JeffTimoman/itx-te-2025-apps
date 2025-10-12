@@ -155,13 +155,13 @@ async function sendVerificationEmail(getPgPool, registrantId) {
                           font-size:22px;
                         "
                         aria-hidden="true"
-                      >HP</div>
+                      >ITX</div>
                     </td>
                   </tr>
                   <tr>
                     <td align="center" style="padding-bottom:14px;">
                       <div style="font-size:20px;letter-spacing:0.5px;color:#7c1e1e;font-weight:bold;">
-                        By Order of the Hogwarts Registry
+                        By Order of the ITX TE Registry
                       </div>
                     </td>
                   </tr>
@@ -231,7 +231,7 @@ async function sendVerificationEmail(getPgPool, registrantId) {
                 </p>
                 <p style="margin:0;font-size:15px;line-height:1.6;">
                   <em>Signed,</em><br/>
-                  <strong style="color:#7c1e1e;">The Hogwarts Games Committee</strong>
+                  <strong style="color:#7c1e1e;">Panitia Team Engagement ITX</strong>
                 </p>
 
                 <!-- Footer note -->
