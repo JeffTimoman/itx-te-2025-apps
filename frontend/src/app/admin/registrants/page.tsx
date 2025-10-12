@@ -1,17 +1,28 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import api, { Registrant, resendVerificationEmail } from "../../../lib/api/registrants";
+import api, {
+  Registrant,
+  resendVerificationEmail,
+} from "../../../lib/api/registrants";
 import AdminHeader from "../../../components/AdminHeader";
 
+type SortKey =
+  | "id"
+  | "name"
+  | "gifts"
+  | "code"
+  | "email"
+  | "sent"
+  | "bureau"
+  | "verified"
+  | "win"
+  | "created"
+  | null;
+type SortDir = "asc" | "desc";
+
 /**
- * RegistrantsAdminPage — polished CRUD dashboard (read + create)
- *
- * UX upgrades
- * - Top toolbar: refresh, client-side search & bureau filter, page size
- * - Inline-validated create form with loading state
- * - Responsive table with sticky header, status chips, copyable code
- * - Empty state, error banner, skeletons, and CSV export
+ * RegistrantsAdminPage — with header filters + sorting
  */
 export default function RegistrantsAdminPage() {
   const [registrants, setRegistrants] = useState<Registrant[]>([]);
@@ -22,10 +33,29 @@ export default function RegistrantsAdminPage() {
   const [bureau, setBureau] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // Toolbar filters/paging
   const [query, setQuery] = useState("");
   const [bureauFilter, setBureauFilter] = useState<string>("all");
   const [pageSize, setPageSize] = useState<number>(10);
   const [page, setPage] = useState<number>(1);
+
+  // Header filters
+  const [idFilter, setIdFilter] = useState("");
+  const [nameFilter, setNameFilter] = useState("");
+  const [giftsFilter, setGiftsFilter] = useState("");
+  const [codeFilter, setCodeFilter] = useState("");
+  const [emailFilter, setEmailFilter] = useState("");
+  const [bureauTextFilter, setBureauTextFilter] = useState("");
+  const [sentFilter, setSentFilter] = useState<"all" | "yes" | "no">("all");
+  const [verifiedFilter, setVerifiedFilter] = useState<"all" | "yes" | "no">(
+    "all"
+  );
+  const [winFilter, setWinFilter] = useState<"all" | "yes" | "no">("all");
+  const [createdFilter, setCreatedFilter] = useState("");
+
+  // Sorting
+  const [sortKey, setSortKey] = useState<SortKey>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   function toMessage(err: unknown) {
     if (!err) return String(err);
@@ -84,30 +114,148 @@ export default function RegistrantsAdminPage() {
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [registrants]);
 
-  const filtered = useMemo(() => {
+  // Toolbar filter first (global query + bureau dropdown)
+  const baseFiltered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = registrants.filter((r) => {
+    return registrants.filter((r) => {
       const bureauOk = bureauFilter === "all" || r.bureau === bureauFilter;
       if (!q) return bureauOk;
       const hay = `${r.id}|${r.name}|${r.email || ""}|${r.bureau || ""}|${
         r.gacha_code || ""
+      }|${
+        r.gifts && r.gifts.length ? r.gifts.map((g) => g.name).join("; ") : ""
       }`.toLowerCase();
       return bureauOk && hay.includes(q);
     });
-    return list;
   }, [registrants, query, bureauFilter]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  // Header filters (precise)
+  const filtered = useMemo(() => {
+    const idf = idFilter.trim().toLowerCase();
+    const nf = nameFilter.trim().toLowerCase();
+    const gf = giftsFilter.trim().toLowerCase();
+    const cf = codeFilter.trim().toLowerCase();
+    const ef = emailFilter.trim().toLowerCase();
+    const bf = bureauTextFilter.trim().toLowerCase();
+    const crf = createdFilter.trim().toLowerCase();
+
+    const ynOk = (val: string | undefined, f: "all" | "yes" | "no") => {
+      if (f === "all") return true;
+      const isYes = val === "Y";
+      return f === "yes" ? isYes : !isYes;
+    };
+
+    return baseFiltered.filter((r) => {
+      const idOk = !idf || String(r.id).toLowerCase().includes(idf);
+      const nameOk = !nf || (r.name || "").toLowerCase().includes(nf);
+      const giftsText =
+        r.gifts && r.gifts.length ? r.gifts.map((g) => g.name).join("; ") : "";
+      const giftsOk = !gf || giftsText.toLowerCase().includes(gf);
+      const codeOk = !cf || (r.gacha_code || "").toLowerCase().includes(cf);
+      const emailOk = !ef || (r.email || "").toLowerCase().includes(ef);
+      const bureauOk = !bf || (r.bureau || "").toLowerCase().includes(bf);
+      const createdOk =
+        !crf ||
+        String(r.created_at || "")
+          .toLowerCase()
+          .includes(crf);
+
+      const sentOk = ynOk(r.is_send_email as any, sentFilter);
+      const verifiedOk = ynOk(r.is_verified as any, verifiedFilter);
+      const winOk = ynOk(r.is_win as any, winFilter);
+
+      return (
+        idOk &&
+        nameOk &&
+        giftsOk &&
+        codeOk &&
+        emailOk &&
+        bureauOk &&
+        createdOk &&
+        sentOk &&
+        verifiedOk &&
+        winOk
+      );
+    });
+  }, [
+    baseFiltered,
+    idFilter,
+    nameFilter,
+    giftsFilter,
+    codeFilter,
+    emailFilter,
+    bureauTextFilter,
+    createdFilter,
+    sentFilter,
+    verifiedFilter,
+    winFilter,
+  ]);
+
+  // Sorting
+  const sorted = useMemo(() => {
+    if (!sortKey) return filtered;
+    const copy = [...filtered];
+
+    const cmpStr = (a?: string | null, b?: string | null) => {
+      const A = (a || "").toLowerCase();
+      const B = (b || "").toLowerCase();
+      return A < B ? -1 : A > B ? 1 : 0;
+    };
+    const cmpNum = (a?: number | null, b?: number | null) =>
+      (a ?? 0) - (b ?? 0);
+    const ynRank = (v?: string | null) => (v === "Y" ? 1 : 0); // N/undefined -> 0, Y -> 1
+
+    copy.sort((a, b) => {
+      let res = 0;
+      if (sortKey === "id") res = cmpNum(a.id as any, b.id as any);
+      else if (sortKey === "name") res = cmpStr(a.name, b.name);
+      else if (sortKey === "gifts")
+        res = (a.gifts?.length ?? 0) - (b.gifts?.length ?? 0);
+      else if (sortKey === "code")
+        res = cmpStr(a.gacha_code || "", b.gacha_code || "");
+      else if (sortKey === "email") res = cmpStr(a.email || "", b.email || "");
+      else if (sortKey === "sent")
+        res = ynRank(a.is_send_email) - ynRank(b.is_send_email);
+      else if (sortKey === "bureau")
+        res = cmpStr(a.bureau || "~~~", b.bureau || "~~~"); // empties last
+      else if (sortKey === "verified")
+        res = ynRank(a.is_verified) - ynRank(b.is_verified);
+      else if (sortKey === "win") res = ynRank(a.is_win) - ynRank(b.is_win);
+      else if (sortKey === "created")
+        res = cmpStr(a.created_at || "", b.created_at || "");
+      return sortDir === "asc" ? res : -res;
+    });
+
+    return copy;
+  }, [filtered, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const pageSafe = Math.min(page, totalPages);
   const paged = useMemo(() => {
     const start = (pageSafe - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, pageSafe, pageSize]);
+    return sorted.slice(start, start + pageSize);
+  }, [sorted, pageSafe, pageSize]);
 
+  // reset to page 1 on any filter/sort/page-size change
   useEffect(() => {
-    // reset to page 1 on filter/query change
     setPage(1);
-  }, [query, bureauFilter, pageSize]);
+  }, [
+    query,
+    bureauFilter,
+    pageSize,
+    idFilter,
+    nameFilter,
+    giftsFilter,
+    codeFilter,
+    emailFilter,
+    bureauTextFilter,
+    createdFilter,
+    sentFilter,
+    verifiedFilter,
+    winFilter,
+    sortKey,
+    sortDir,
+  ]);
 
   function exportCSV() {
     const headers = [
@@ -117,11 +265,12 @@ export default function RegistrantsAdminPage() {
       "gacha_code",
       "email",
       "bureau",
+      "is_send_email",
       "is_verified",
       "is_win",
       "created_at",
     ];
-    const rows = filtered.map((r) => [
+    const rows = sorted.map((r) => [
       r.id,
       escapeCSV(r.name || ""),
       escapeCSV(
@@ -130,6 +279,7 @@ export default function RegistrantsAdminPage() {
       r.gacha_code || "",
       r.email || "",
       r.bureau || "",
+      r.is_send_email || "",
       r.is_verified || "",
       r.is_win || "",
       r.created_at || "",
@@ -160,10 +310,21 @@ export default function RegistrantsAdminPage() {
     navigator.clipboard.writeText(text);
   }
 
+  function toggleSort(next: SortKey, canSort: boolean) {
+    if (!canSort) return;
+    setSortKey((prev) => {
+      if (prev !== next) {
+        setSortDir("asc");
+        return next;
+      }
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      return prev;
+    });
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100">
       {/* Header */}
-      {/* Replaced by shared AdminHeader component */}
       <AdminHeader title="Registrants">
         <button
           onClick={load}
@@ -299,24 +460,263 @@ export default function RegistrantsAdminPage() {
           <div className="overflow-auto">
             <table className="w-full text-sm">
               <thead className="bg-white/10 sticky top-0 z-10">
+                {/* Sortable header row */}
                 <tr className="text-left">
-                  <Th>ID</Th>
-                  <Th>Name</Th>
-                  <Th>Gifts</Th>
-                  <Th>Code</Th>
-                  <Th>Email</Th>
-                  <Th>Emailed</Th>
-                  <Th>Bureau</Th>
-                  <Th>Verified</Th>
-                  <Th>Win</Th>
-                  <Th>Created</Th>
+                  <Th
+                    sortable
+                    active={sortKey === "id"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "id"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("id", true)}
+                  >
+                    ID
+                  </Th>
+                  <Th
+                    sortable
+                    active={sortKey === "name"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "name"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("name", true)}
+                  >
+                    Name
+                  </Th>
+                  <Th
+                    sortable
+                    active={sortKey === "gifts"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "gifts"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("gifts", true)}
+                  >
+                    Gifts
+                  </Th>
+                  <Th
+                    sortable
+                    active={sortKey === "code"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "code"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("code", true)}
+                  >
+                    Code
+                  </Th>
+                  <Th
+                    sortable
+                    active={sortKey === "email"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "email"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("email", true)}
+                  >
+                    Email
+                  </Th>
+                  <Th
+                    sortable
+                    active={sortKey === "sent"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "sent"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("sent", true)}
+                  >
+                    Emailed
+                  </Th>
+                  <Th
+                    sortable
+                    active={sortKey === "bureau"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "bureau"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("bureau", true)}
+                  >
+                    Bureau
+                  </Th>
+                  <Th
+                    sortable
+                    active={sortKey === "verified"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "verified"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("verified", true)}
+                  >
+                    Verified
+                  </Th>
+                  <Th
+                    sortable
+                    active={sortKey === "win"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "win"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("win", true)}
+                  >
+                    Win
+                  </Th>
+                  <Th
+                    sortable
+                    active={sortKey === "created"}
+                    dir={sortDir}
+                    ariaSort={
+                      sortKey === "created"
+                        ? sortDir === "asc"
+                          ? "ascending"
+                          : "descending"
+                        : "none"
+                    }
+                    onClick={() => toggleSort("created", true)}
+                  >
+                    Created
+                  </Th>
+                </tr>
+
+                {/* Header filter row */}
+                <tr className="text-left border-t border-white/10">
+                  <th className="p-2">
+                    <input
+                      value={idFilter}
+                      onChange={(e) => setIdFilter(e.target.value)}
+                      placeholder="Filter ID…"
+                      inputMode="numeric"
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      value={nameFilter}
+                      onChange={(e) => setNameFilter(e.target.value)}
+                      placeholder="Filter name…"
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      value={giftsFilter}
+                      onChange={(e) => setGiftsFilter(e.target.value)}
+                      placeholder="Filter gifts…"
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      value={codeFilter}
+                      onChange={(e) => setCodeFilter(e.target.value)}
+                      placeholder="Filter code…"
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <input
+                      value={emailFilter}
+                      onChange={(e) => setEmailFilter(e.target.value)}
+                      placeholder="Filter email…"
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <select
+                      value={sentFilter}
+                      onChange={(e) => setSentFilter(e.target.value as any)}
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20"
+                      title="Emailed status"
+                    >
+                      <option value="all">All</option>
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </th>
+                  <th className="p-2">
+                    <input
+                      value={bureauTextFilter}
+                      onChange={(e) => setBureauTextFilter(e.target.value)}
+                      placeholder="Filter bureau…"
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                    />
+                  </th>
+                  <th className="p-2">
+                    <select
+                      value={verifiedFilter}
+                      onChange={(e) => setVerifiedFilter(e.target.value as any)}
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20"
+                      title="Verified status"
+                    >
+                      <option value="all">All</option>
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </th>
+                  <th className="p-2">
+                    <select
+                      value={winFilter}
+                      onChange={(e) => setWinFilter(e.target.value as any)}
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20"
+                      title="Win status"
+                    >
+                      <option value="all">All</option>
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </th>
+                  <th className="p-2">
+                    <input
+                      value={createdFilter}
+                      onChange={(e) => setCreatedFilter(e.target.value)}
+                      placeholder="Filter created…"
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
+                    />
+                  </th>
                 </tr>
               </thead>
+
               <tbody>
                 {loading ? (
                   [...Array(pageSize)].map((_, i) => (
                     <tr key={i} className="border-t border-white/10">
-                      {[...Array(9)].map((__, j) => (
+                      {[...Array(10)].map((__, j) => (
                         <td key={j} className="p-3">
                           <div className="h-4 w-24 sm:w-32 bg-white/10 rounded animate-pulse" />
                         </td>
@@ -325,7 +725,7 @@ export default function RegistrantsAdminPage() {
                   ))
                 ) : paged.length === 0 ? (
                   <tr>
-                    <td className="p-6 text-center text-slate-300" colSpan={9}>
+                    <td className="p-6 text-center text-slate-300" colSpan={10}>
                       No registrants found.
                     </td>
                   </tr>
@@ -364,11 +764,23 @@ export default function RegistrantsAdminPage() {
                       </td>
                       <td className="p-3 whitespace-nowrap">
                         <div className="flex items-center gap-2">
-                          <Chip ok={r.is_send_email === 'Y'} okText="Sent" noText="Not sent" />
-                          <ResendButton id={r.id} onSent={() => {
-                            // update local state to reflect sent status
-                            setRegistrants((arr) => arr.map((x) => (x.id === r.id ? { ...x, is_send_email: 'Y' } : x)));
-                          }} />
+                          <Chip
+                            ok={r.is_send_email === "Y"}
+                            okText="Sent"
+                            noText="Not sent"
+                          />
+                          <ResendButton
+                            id={r.id}
+                            onSent={() => {
+                              setRegistrants((arr) =>
+                                arr.map((x) =>
+                                  x.id === r.id
+                                    ? { ...x, is_send_email: "Y" }
+                                    : x
+                                )
+                              );
+                            }}
+                          />
                         </div>
                       </td>
                       <td className="p-3 whitespace-nowrap">
@@ -404,8 +816,8 @@ export default function RegistrantsAdminPage() {
           <div className="flex items-center justify-between px-4 py-3 border-t border-white/10 text-xs">
             <div className="opacity-80">
               Showing <strong>{paged.length}</strong> of{" "}
-              <strong>{filtered.length}</strong> result
-              {filtered.length !== 1 ? "s" : ""}
+              <strong>{sorted.length}</strong> result
+              {sorted.length !== 1 ? "s" : ""}
             </div>
             <div className="flex items-center gap-1">
               <button
@@ -434,10 +846,46 @@ export default function RegistrantsAdminPage() {
 }
 
 // --- Small UI bits ---
-function Th({ children }: { children: React.ReactNode }) {
+function Th({
+  children,
+  sortable,
+  active,
+  dir,
+  onClick,
+  ariaSort,
+  title,
+}: {
+  children: React.ReactNode;
+  sortable?: boolean;
+  active?: boolean;
+  dir?: "asc" | "desc";
+  onClick?: () => void;
+  ariaSort?: "none" | "ascending" | "descending";
+  title?: string;
+}) {
+  const base =
+    "p-3 text-[11px] font-semibold uppercase tracking-wider text-slate-200/90";
+  if (!sortable) {
+    return (
+      <th className={base + " opacity-70"} aria-sort={ariaSort} title={title}>
+        {children}
+      </th>
+    );
+  }
   return (
-    <th className="p-3 text-[11px] font-semibold uppercase tracking-wider text-slate-200/90">
-      {children}
+    <th className={base} aria-sort={ariaSort} title="Click to sort">
+      <button
+        onClick={onClick}
+        className={
+          "inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-white/10 transition " +
+          (active ? "bg-white/10" : "")
+        }
+      >
+        <span>{children}</span>
+        <span className="text-[10px] opacity-80">
+          {active ? (dir === "asc" ? "▲" : "▼") : "↕"}
+        </span>
+      </button>
     </th>
   );
 }
@@ -478,10 +926,13 @@ function ResendButton({ id, onSent }: { id: number; onSent?: () => void }) {
       if (res && res.ok) {
         if (onSent) onSent();
       } else {
-        alert('Failed to resend email');
+        alert("Failed to resend email");
       }
     } catch (err) {
-      alert('Failed to resend email: ' + (err instanceof Error ? err.message : String(err)));
+      alert(
+        "Failed to resend email: " +
+          (err instanceof Error ? err.message : String(err))
+      );
     } finally {
       setLoading(false);
     }
@@ -492,7 +943,7 @@ function ResendButton({ id, onSent }: { id: number; onSent?: () => void }) {
       disabled={loading}
       className="text-[11px] px-2 py-0.5 rounded bg-white/10 border border-white/20 hover:bg-white/15"
     >
-      {loading ? 'Sending…' : 'Resend'}
+      {loading ? "Sending…" : "Resend"}
     </button>
   );
 }
