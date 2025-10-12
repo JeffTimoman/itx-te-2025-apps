@@ -2,6 +2,8 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
+const session = require('express-session');
+const bcrypt = require('bcrypt');
 const redis = require('redis');
 require('dotenv').config();
 
@@ -117,6 +119,35 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
+// Session middleware (server-side sessions for simple admin auth)
+// In production, replace the MemoryStore with a persistent store (Redis, Postgres, etc.)
+app.use(session({
+  name: process.env.SESSION_NAME || 'itx.sid',
+  secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 24 * 60 * 60 * 1000 // 1 day
+  }
+}));
+
+// Simple middleware to require an authenticated admin user for /api/admin routes
+// Roles allowed to access admin routes (comma-separated env var, default 'admin')
+const ADMIN_ALLOWED_ROLES = (process.env.ADMIN_ALLOWED_ROLES || 'admin').split(',').map((r) => String(r).trim()).filter(Boolean);
+
+function requireAdmin(req, res, next) {
+  if (!req.session || !req.session.user || !req.session.user.id) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const role = String(req.session.user.role || '').trim();
+  if (!ADMIN_ALLOWED_ROLES.includes(role)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  return next();
+}
+
 // Socket.IO setup with CORS
 const io = socketIo(server, {
   cors: corsOptions
@@ -167,6 +198,52 @@ app.get('/api/rooms', async (req, res) => {
 
 // Registrants admin endpoints
 // Note: these endpoints do not implement authentication. Run in a trusted network or add auth.
+// Authentication endpoints
+app.post('/api/admin/login', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) return res.status(400).json({ error: 'username and password required' });
+    const result = await pgPool.query('SELECT id, username, password_hash, email, name, role FROM users WHERE username = $1', [String(username).trim()]);
+    if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
+    const user = result.rows[0];
+    const ok = await bcrypt.compare(String(password), String(user.password_hash));
+    if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+    // Set basic session user info
+    req.session.user = { id: user.id, username: user.username, email: user.email, name: user.name, role: user.role };
+    return res.json({ ok: true, user: req.session.user });
+  } catch (err) {
+    console.error('Login error', err && err.message);
+    return res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+app.post('/api/admin/logout', (req, res) => {
+  try {
+    req.session.destroy(() => {});
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to logout' });
+  }
+});
+
+// Public session check for frontend auth checks (placed before admin protection)
+app.get('/api/admin/session', (req, res) => {
+  try {
+    if (req.session && req.session.user) {
+      return res.json({ user: req.session.user });
+    }
+    return res.json({ user: null });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to read session' });
+  }
+});
+
+// Protect admin routes
+app.use('/api/admin', requireAdmin);
+
+// Registrants admin endpoints
+// Note: these endpoints require authentication. Run in a trusted network or add auth.
 app.get('/api/admin/registrants', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   try {
