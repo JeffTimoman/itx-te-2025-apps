@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import AdminHeader from "../../../components/AdminHeader";
 
 type Winner = { name: string; gacha_code?: string | null; is_assigned?: string | null };
 type Row = {
@@ -140,32 +141,21 @@ export default function WinnersPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100">
-      {/* Header */}
-      <header className="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-white/5 border-b border-white/10">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-xl bg-white/10 grid place-content-center text-sm font-bold">
-              ITX
-            </div>
-            <h1 className="text-sm sm:text-base font-semibold">Gift Winners</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={load}
-              disabled={loading}
-              className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15 disabled:opacity-50"
-            >
-              {loading ? "Refreshing…" : "Refresh"}
-            </button>
-            <button
-              onClick={exportCSV}
-              className="px-3 py-1.5 rounded-lg bg-indigo-500/90 hover:bg-indigo-500 text-xs"
-            >
-              Export CSV
-            </button>
-          </div>
-        </div>
-      </header>
+      <AdminHeader title="Gift Winners">
+        <button
+          onClick={load}
+          disabled={loading}
+          className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15 disabled:opacity-50"
+        >
+          {loading ? "Refreshing…" : "Refresh"}
+        </button>
+        <button
+          onClick={exportCSV}
+          className="px-3 py-1.5 rounded-lg bg-indigo-500/90 hover:bg-indigo-500 text-xs"
+        >
+          Export CSV
+        </button>
+      </AdminHeader>
 
       {/* Main */}
       <main className="max-w-6xl mx-auto px-4 py-8 space-y-6">
