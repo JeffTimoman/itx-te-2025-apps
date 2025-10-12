@@ -1061,7 +1061,7 @@ export default function JoinPage() {
           <section className="hidden md:block">
             <div className={`rounded-3xl p-8 ${glass} shadow-2xl`}>
               <h1 className="text-3xl font-extrabold tracking-tight font-[Cinzel,serif]">
-                Hogwarts Tap Duel
+                ITX Tap Duel
               </h1>
               <p className="mt-3 text-sm leading-relaxed text-amber-200/90 font-[Crimson Pro,serif]">
                 Wanna Know Who is First? Tap and become the first!
