@@ -56,11 +56,12 @@ export default function WinnersPage() {
     }
   };
 
+  // use authFetch so JWT Authorization header is sent
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/winners");
+      const res = await import("../../../lib/api/client").then((m) => m.default("/api/admin/winners"));
       if (!res.ok) throw await res.json();
       const data = (await res.json()) as Row[];
       setRows(data || []);

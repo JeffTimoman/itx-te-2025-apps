@@ -21,6 +21,8 @@ type FetchErr = unknown | { error?: string; message?: string } | string;
 type SortKey = "id" | "name" | "bureau" | "code" | null;
 type SortDir = "asc" | "desc";
 
+import authFetch from "../../../lib/api/client";
+
 export default function AssignGiftPage() {
   const [gifts, setGifts] = useState<Gift[]>([]);
   const [registrants, setRegistrants] = useState<Registrant[]>([]);
@@ -82,11 +84,11 @@ export default function AssignGiftPage() {
     setError(null);
     try {
       const [g, r] = await Promise.all([
-        fetch("/api/admin/gifts/available"),
-        fetch("/api/admin/registrants"),
-      ]);
-      if (g.ok) setGifts(await g.json());
-      if (r.ok) setRegistrants(await r.json());
+          authFetch("/api/admin/gifts/available"),
+          authFetch("/api/admin/registrants"),
+        ]);
+        if (g.ok) setGifts(await g.json());
+        if (r.ok) setRegistrants(await r.json());
     } catch (e) {
       setError(toMsg(e));
     } finally {
@@ -225,11 +227,11 @@ export default function AssignGiftPage() {
       if (!res.ok) throw body;
 
       setSuccess("Gift assigned ✔");
-      // refresh
-      const g = await fetch("/api/admin/gifts/available");
-      if (g.ok) setGifts(await g.json());
-      const r = await fetch("/api/admin/registrants");
-      if (r.ok) setRegistrants(await r.json());
+  // refresh
+  const g = await authFetch("/api/admin/gifts/available");
+  if (g.ok) setGifts(await g.json());
+  const r = await authFetch("/api/admin/registrants");
+  if (r.ok) setRegistrants(await r.json());
       setSelectedRegistrant(null);
     } catch (e) {
       setError(toMsg(e));

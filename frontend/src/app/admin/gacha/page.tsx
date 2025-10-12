@@ -7,6 +7,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import authFetch from "../../../lib/api/client";
 import { motion, AnimatePresence } from "framer-motion";
 
 /**
@@ -100,7 +101,7 @@ export default function GachaPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/admin/gifts/available");
+      const res = await authFetch("/api/admin/gifts/available");
       if (!res.ok) throw await res.json();
       const data = await res.json();
       setGifts(data || []);
