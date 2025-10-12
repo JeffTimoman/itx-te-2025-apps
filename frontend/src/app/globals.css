@@ -24,3 +24,93 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Hide scrollbars globally but keep content scrollable
+   - WebKit browsers: hide via ::-webkit-scrollbar
+   - Firefox: use scrollbar-width: none
+   - IE/Edge legacy: -ms-overflow-style: none
+*/
+html, body, #__next {
+  height: 100%;
+}
+
+/* For modern browsers (WebKit) */
+*::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+}
+
+/* For Firefox */
+* {
+  scrollbar-width: none; /* hide scrollbar */
+  -ms-overflow-style: none; /* IE 10+ */
+}
+
+.suffix-bright {
+  color: rgba(255,255,255,0.98);
+  text-shadow:
+    0 0 26px rgba(99,102,241,0.65),
+    0 0 12px rgba(16,185,129,0.55),
+    0 0 2px rgba(255,255,255,0.85);
+}
+
+/* give extra pop while glitching */
+.suffix-bright.glitching {
+  filter: drop-shadow(0 0 10px rgba(99,102,241,0.75));
+}
+
+/* Improve readability of native select controls and option lists across themes
+   Many selects use translucent white utility classes (bg-white/10) which can
+   make the OS-native dropdown list hard to read on dark backgrounds. Use the
+   site's CSS variables to ensure contrast for select and option elements. */
+select,
+select option,
+select optgroup {
+  background-color: var(--background) !important;
+  color: var(--foreground) !important;
+}
+
+/* Slightly darker select box to visually separate from the page background */
+select {
+  background-color: rgba(255,255,255,0.03) !important;
+  border-color: rgba(255,255,255,0.12) !important;
+  color: var(--foreground) !important;
+  padding: 0.5rem 0.75rem;
+}
+
+/* Target selects that may have been given Tailwind translucent backgrounds
+   (e.g. class="bg-white/10"). Use attribute selector to increase specificity. */
+select[class*="bg-"] {
+  background-color: rgba(255,255,255,0.06) !important;
+  color: var(--foreground) !important;
+  border-color: rgba(255,255,255,0.14) !important;
+}
+
+/* Improve rendering in WebKit/Safari/Chromium: ensure text fill color is applied */
+select, option {
+  -webkit-text-fill-color: var(--foreground) !important;
+}
+
+/* Remove native arrow styling when appearance is used; keep native otherwise */
+select.custom-appearance {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--foreground) 50%), linear-gradient(135deg, var(--foreground) 50%, transparent 50%);
+  background-position: calc(100% - 18px) calc(50% - 6px), calc(100% - 12px) calc(50% - 6px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 2rem;
+}
+
+/* Focus ring for keyboard users */
+select:focus {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(99,102,241,0.12);
+}
+
+/* Option hover/selection hint (works in some browsers) */
+option:hover,
+option:checked {
+  background-color: rgba(99,102,241,0.12) !important;
+}

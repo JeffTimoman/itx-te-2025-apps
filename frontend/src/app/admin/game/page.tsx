@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { getSocket } from "../../lib/socket";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { getSocket } from "../../../lib/socket";
+import AdminHeader from "../../../components/AdminHeader";
 
 type Player = { id: string; name: string };
 type Room = {
@@ -13,25 +14,16 @@ type Room = {
 
 type LogItem = { ts: number; text: string };
 
-/**
- * AdminPage — revamped control center
- *
- * UX highlights
- * - Guided create flow with inline validation & loading state
- * - Two‑column dashboard: Controls (left) • Players & Events (right)
- * - Prominent room code with copy button + join toggle badge
- * - Duration presets + custom input, guarded actions
- * - Sticky action bar on mobile; responsive & accessible
- */
 export default function AdminPage() {
-  const [createdRoom, setCreatedRoom] = useState<Room | null>(null);
-  const [name, setName] = useState("");
-  const [players, setPlayers] = useState<Player[]>([]);
   const [firstTap, setFirstTap] = useState<{
-    playerId: string;
-    playerName: string;
-  } | null>(null);
+  playerId: string;
+  playerName: string;
+} | null>(null);
   const [allowJoins, setAllowJoins] = useState<boolean>(true);
+
+  const [name, setName] = useState<string>("");
+  const [createdRoom, setCreatedRoom] = useState<Room | null>(null);
+  const [players, setPlayers] = useState<Player[]>([]);
 
   const [toast, setToast] = useState<string>("");
   const [logs, setLogs] = useState<LogItem[]>([]);
@@ -43,12 +35,14 @@ export default function AdminPage() {
 
   const customDurationRef = useRef<HTMLInputElement | null>(null);
 
-  const addLog = (text: string) =>
-    setLogs((l) => [{ ts: Date.now(), text }, ...l].slice(0, 200));
-  const setMessage = (m: string) => {
+  const addLog = useCallback((text: string) =>
+    setLogs((l) => [{ ts: Date.now(), text }, ...l].slice(0, 200)),
+    []
+  );
+  const setMessage = useCallback((m: string) => {
     setToast(m);
     addLog(m);
-  };
+  }, [addLog]);
 
   // Derived
   const canCreate = useMemo(
@@ -180,7 +174,7 @@ export default function AdminPage() {
       socket.off("endGameAck");
       socket.off("endGameError");
     };
-  }, []);
+  }, [setMessage]);
 
   // Actions
   function handleCreate() {
@@ -263,24 +257,17 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100">
-      {/* Header */}
-      <header className="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-white/5 border-b border-white/10">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-xl bg-white/10 grid place-content-center text-sm font-bold">
-              ITX
-            </div>
-            <div className="text-sm opacity-80">
-              Admin Panel {createdRoom ? `• Room ${createdRoom.id}` : ""}
-            </div>
+      <AdminHeader title={
+        <>
+          Admin Panel {createdRoom ? `• Room ${createdRoom.id}` : ""}
+        </>
+      }>
+        {toast && (
+          <div className="text-xs px-3 py-1 rounded-full bg-white/15 border border-white/20">
+            {toast}
           </div>
-          {toast && (
-            <div className="text-xs px-3 py-1 rounded-full bg-white/15 border border-white/20">
-              {toast}
-            </div>
-          )}
-        </div>
-      </header>
+        )}
+      </AdminHeader>
 
       {/* Main */}
       <main className="max-w-6xl mx-auto px-4 py-8 grid lg:grid-cols-2 gap-6">
@@ -290,7 +277,7 @@ export default function AdminPage() {
             <div className="rounded-2xl p-6 bg-white/5 border border-white/10">
               <h2 className="text-xl font-bold">Create room</h2>
               <p className="text-sm text-slate-300 mt-1">
-                Enter Room ID. You'll be the host.
+                Enter Room ID. You&apos;ll be the host.
               </p>
               <div className="mt-4 grid gap-3">
                 <label
