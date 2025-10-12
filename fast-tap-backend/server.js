@@ -407,6 +407,9 @@ app.post('/api/registrations/verify', async (req, res) => {
           await client.query('ROLLBACK');
           return res.status(400).json({ error: 'Registrant already verified' });
         }
+        // Persist the selected registrant_id to the verification_codes row so the code
+        // becomes bound to that registrant for auditing and future checks.
+        await client.query('UPDATE verification_codes SET registrant_id = $1 WHERE id = $2', [registrant_id, row.id]);
         targetRegistrantId = registrant_id;
       }
 
