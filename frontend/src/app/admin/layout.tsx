@@ -7,11 +7,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const router = useRouter();
   const [loading, setLoading] = useState(true);
 
+  const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_URL || '').replace(/\/$/, '');
+
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const res = await fetch('/api/admin/session', { credentials: 'include' });
+        const url = BACKEND ? `${BACKEND}/api/admin/session` : '/api/admin/session';
+        const res = await fetch(url, { credentials: 'include' });
         if (!mounted) return;
         const json = await res.json();
         if (!json || !json.user) {
@@ -26,7 +29,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       }
     })();
     return () => { mounted = false; };
-  }, [router]);
+  }, [router, BACKEND]);
 
   if (loading) {
     return (

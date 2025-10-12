@@ -15,9 +15,11 @@ export default function AdminHeader({
 
   useEffect(() => {
     let mounted = true;
+    const BACKEND = (process.env.NEXT_PUBLIC_BACKEND_URL || '').replace(/\/$/, '');
     (async () => {
       try {
-        const res = await fetch('/api/admin/session', { credentials: 'include' });
+        const url = BACKEND ? `${BACKEND}/api/admin/session` : '/api/admin/session';
+        const res = await fetch(url, { credentials: 'include' });
         const js = await res.json();
         if (!mounted) return;
         setUser(js && js.user ? js.user : null);

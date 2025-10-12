@@ -128,7 +128,12 @@ app.use(session({
   saveUninitialized: false,
   cookie: {
     httpOnly: true,
+    // In production we require secure cookies and SameSite=None so the cookie can be sent when
+    // the frontend is hosted on a different origin (e.g., behind a proxy). For local development
+    // we use SameSite=Lax and secure=false so the cookie can be set over HTTP on localhost.
     secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    domain: process.env.COOKIE_DOMAIN || undefined,
     maxAge: 24 * 60 * 60 * 1000 // 1 day
   }
 }));
