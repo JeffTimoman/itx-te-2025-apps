@@ -1,5 +1,6 @@
 const nodemailer = require('nodemailer');
 const bwipjs = require('bwip-js');
+const log = require('./log');
 
 // sendVerificationEmail(getPgPool, registrantId)
 // getPgPool: function that returns the current pgPool (may be null during startup)
@@ -37,7 +38,7 @@ async function sendVerificationEmail(getPgPool, registrantId) {
         backgroundcolor: 'FFFFFF',
       });
     } catch (err) {
-      console.warn('Failed to generate barcode image:', err && err.message);
+      log.warn('Failed to generate barcode image:', err && err.message);
       barcodePng = null;
     }
 
@@ -69,25 +70,25 @@ async function sendVerificationEmail(getPgPool, registrantId) {
     };
     if (barcodePng) mailOptions.attachments.push({ filename: 'gcode.png', content: barcodePng, cid: 'gcodeimg' });
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Sent verification email to', to);
+  const info = await transporter.sendMail(mailOptions);
+  log.info('Sent verification email to', to);
 
     try {
       await pgPool.query('INSERT INTO email_logs (registrant_id, to_email, subject, body, success) VALUES ($1,$2,$3,$4,$5)', [registrantId, to, subject, html, 'Y']);
       await pgPool.query('UPDATE registrants SET is_send_email = $1 WHERE id = $2', ['Y', registrantId]);
     } catch (e) {
-      console.warn('Failed to write email_logs or update registrant after send', e && e.message);
+      log.warn('Failed to write email_logs or update registrant after send', e && e.message);
     }
 
     return { ok: true, info };
-  } catch (err) {
-    console.error('sendVerificationEmail error:', err && err.message);
+    } catch (err) {
+    log.error('sendVerificationEmail error:', err && err.message);
     try {
       const r2 = await (typeof getPgPool === 'function' ? getPgPool() : getPgPool).query('SELECT email FROM registrants WHERE id = $1', [registrantId]);
       const toEmail = (r2.rows[0] && r2.rows[0].email) || '';
       await (typeof getPgPool === 'function' ? getPgPool() : getPgPool).query('INSERT INTO email_logs (registrant_id, to_email, subject, body, success, error) VALUES ($1,$2,$3,$4,$5,$6)', [registrantId, toEmail, 'verification email', '', 'N', String(err && err.message ? err.message : err)]);
     } catch (e) {
-      console.warn('Failed to write email_logs after send error', e && e.message);
+      log.warn('Failed to write email_logs after send error', e && e.message);
     }
     return { ok: false, error: err && err.message ? err.message : String(err) };
   }

@@ -1,7 +1,9 @@
 // Socket handlers extracted from server.js
+const log = require('./log');
+
 module.exports = function registerSocketHandlers(io, gameManager) {
   io.on('connection', (socket) => {
-    console.log('New client connected:', socket.id);
+    log.info('New client connected:', socket.id);
 
     // Join room
     socket.on('joinRoom', async (data) => {
@@ -18,7 +20,7 @@ module.exports = function registerSocketHandlers(io, gameManager) {
               socket.emit('gameStarted', { gameState, startTime: gameState.startTime, durationMs: gameState.duration, isMidJoin: true });
             }
           } catch (e) {
-            console.warn('Failed to send gameState to joining client', e && e.message);
+            log.warn('Failed to send gameState to joining client', e && e.message);
           }
         } else {
           socket.emit('joinRoomError', { message: result.message });
@@ -41,7 +43,7 @@ module.exports = function registerSocketHandlers(io, gameManager) {
           socket.emit('createRoomError', { message: result.message });
         }
       } catch (error) {
-        console.error('Error creating room:', error);
+        log.error('Error creating room:', error);
         socket.emit('createRoomError', { message: 'Failed to create room' });
       }
     });
@@ -51,9 +53,9 @@ module.exports = function registerSocketHandlers(io, gameManager) {
       try {
         const { roomId } = data;
         const duration = Number(data.duration) || 30; // seconds
-        console.log(`startGame requested by ${socket.id} for room ${roomId} durationSeconds=${duration}`);
-        const result = await gameManager.startGame(roomId, socket.id, duration);
-        console.log('startGame result:', result && result.success ? 'success' : 'failed', result && result.gameState ? { duration: result.gameState.duration, startTime: result.gameState.startTime } : result);
+  log.info(`startGame requested by ${socket.id} for room ${roomId} durationSeconds=${duration}`);
+  const result = await gameManager.startGame(roomId, socket.id, duration);
+  log.debug('startGame result:', result && result.success ? 'success' : 'failed', result && result.gameState ? { duration: result.gameState.duration, startTime: result.gameState.startTime } : result);
 
         if (result.success) {
           try { console.log(`Starting game ${roomId} durationMs=${result.gameState.duration}`); } catch(e) {}
@@ -75,7 +77,7 @@ module.exports = function registerSocketHandlers(io, gameManager) {
                 await gameManager._setEx(`${gameManager.ROOM_PREFIX}${roomId}`, 3600, JSON.stringify(room));
                 io.to(roomId).emit('postTimerOpen', { message: 'Timer ended — first tap now wins' });
               } catch (e) {
-                console.warn('Failed to set room to post state after empty timeout', e && e.message);
+                log.warn('Failed to set room to post state after empty timeout', e && e.message);
               }
             }
           }, durationMs);
@@ -114,7 +116,7 @@ module.exports = function registerSocketHandlers(io, gameManager) {
                   io.to(roomId).emit('gameEnded', { results: endResult.results, winner: endResult.winner });
                 }
               } catch (e) {
-                console.warn('Error finalizing endGame after tie window', e && e.message);
+                log.warn('Error finalizing endGame after tie window', e && e.message);
               }
             }, TIE_WINDOW_MS);
           }
@@ -122,8 +124,8 @@ module.exports = function registerSocketHandlers(io, gameManager) {
         } else {
           try { socket.emit('tapDenied', { message: result.message }); } catch (e) {}
         }
-      } catch (error) {
-        console.error('Error registering tap:', error);
+          } catch (error) {
+        log.error('Error registering tap:', error);
       }
     });
 
@@ -142,7 +144,7 @@ module.exports = function registerSocketHandlers(io, gameManager) {
         io.to(roomId).emit('allowJoinsChanged', { allowJoins: room.allowJoins, room });
         socket.emit('setAllowJoinsAck', { success: true });
       } catch (e) {
-        console.error('Error setting allowJoins', e && e.message);
+        log.error('Error setting allowJoins', e && e.message);
         socket.emit('setAllowJoinsError', { message: 'Failed to set allowJoins' });
       }
     });
@@ -164,7 +166,7 @@ module.exports = function registerSocketHandlers(io, gameManager) {
         await gameManager._setEx(`${gameManager.ROOM_PREFIX}${roomId}`, 3600, JSON.stringify(room));
         io.to(roomId).emit('roundReset', { message: 'Round has been reset by admin', room });
       } catch (err) {
-        console.error('Error resetting round', err);
+        log.error('Error resetting round', err);
       }
     });
 
@@ -198,7 +200,7 @@ module.exports = function registerSocketHandlers(io, gameManager) {
         io.to(roomId).emit('roomEnded', { message: 'Game ended by admin', room: updated });
         socket.emit('endGameAck', { success: true });
       } catch (err) {
-        console.error('Error ending game', err);
+        log.error('Error ending game', err);
         socket.emit('endGameError', { message: 'Failed to end game' });
       }
     });
@@ -213,13 +215,13 @@ module.exports = function registerSocketHandlers(io, gameManager) {
           socket.to(roomId).emit('playerLeft', { playerId: socket.id, room: result.room });
         }
       } catch (error) {
-        console.error('Error leaving room:', error);
+        log.error('Error leaving room:', error);
       }
     });
 
     // disconnect
     socket.on('disconnect', async () => {
-      console.log('Client disconnected:', socket.id);
+      log.info('Client disconnected:', socket.id);
       try {
         const result = await gameManager.handleDisconnect(socket.id);
         if (result && result.success && result.room) {
@@ -227,7 +229,7 @@ module.exports = function registerSocketHandlers(io, gameManager) {
           try { io.to(roomId).emit('playerLeft', { playerId: socket.id, room: result.room }); } catch (e) {}
         }
       } catch (error) {
-        console.error('Error handling disconnect:', error);
+        log.error('Error handling disconnect:', error);
       }
     });
   });

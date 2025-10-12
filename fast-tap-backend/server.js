@@ -5,6 +5,7 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const redis = require('redis');
+const log = require('./src/log');
 require('dotenv').config();
 
 const app = express();
@@ -28,7 +29,7 @@ async function tryInitPgPool(retries = 10, delayMs = 2000) {
       const p = await initPgPool();
       if (p) {
         pgPool = p;
-        console.log('Postgres pool initialized');
+        log.info('Postgres pool initialized');
         return true;
       }
       console.warn(`Postgres pool test failed (attempt ${i + 1}/${retries})`);
@@ -47,20 +48,20 @@ async function tryInitPgPool(retries = 10, delayMs = 2000) {
   try {
     const ok = await tryInitPgPool(10, 2000);
     if (!ok) {
-      console.warn('Initial Postgres init attempts failed; will retry in background every 30s');
+      log.warn('Initial Postgres init attempts failed; will retry in background every 30s');
       const interval = setInterval(async () => {
         if (!pgPool) {
           try {
             const p = await initPgPool();
             if (p) {
               pgPool = p;
-              console.log('Postgres pool initialized on background retry');
+              log.info('Postgres pool initialized on background retry');
               clearInterval(interval);
             } else {
-              console.warn('Background retry: Postgres still not available');
+              log.warn('Background retry: Postgres still not available');
             }
           } catch (e) {
-            console.warn('Background retry error:', e && e.message);
+            log.warn('Background retry error:', e && e.message);
           }
         } else {
           clearInterval(interval);
@@ -68,7 +69,7 @@ async function tryInitPgPool(retries = 10, delayMs = 2000) {
       }, 30000);
     }
   } catch (err) {
-    console.warn('Postgres init failed (outer):', err && err.message);
+    log.warn('Postgres init failed (outer):', err && err.message);
     pgPool = null;
   }
 })();
@@ -87,11 +88,11 @@ if (enableRedis) {
 
   // Connect to Redis
   redisClient.on('error', (err) => {
-    console.error('Redis Client Error:', err);
+    log.error('Redis Client Error:', err);
   });
 
   redisClient.on('connect', () => {
-    console.log('Connected to Redis');
+    log.info('Connected to Redis');
   });
 
   // Initialize Redis connection
@@ -99,14 +100,14 @@ if (enableRedis) {
     try {
       await redisClient.connect();
     } catch (error) {
-      console.error('Failed to connect to Redis:', error);
+      log.error('Failed to connect to Redis:', error);
       // If connect fails, disable redis usage to fall back to in-memory
       try { await redisClient.quit(); } catch (e) {}
       redisClient = null;
     }
   })();
 } else {
-  console.log('Redis disabled (ENABLE_REDIS!=true). Using in-memory storage fallback.');
+    log.info('Redis disabled (ENABLE_REDIS!=true). Using in-memory storage fallback.');
 }
 
 // CORS configuration
@@ -543,7 +544,7 @@ process.on('SIGTERM', async () => {
   try {
     if (redisClient && redisClient.isOpen) await redisClient.quit();
   } catch (err) {
-    console.warn('Error quitting Redis client on SIGTERM:', err && err.message);
+      log.warn('Error quitting Redis client on SIGTERM:', err && err.message);
   }
   server.close(() => {
     console.log('Server closed.');
@@ -556,7 +557,7 @@ process.on('SIGINT', async () => {
   try {
     if (redisClient && redisClient.isOpen) await redisClient.quit();
   } catch (err) {
-    console.warn('Error quitting Redis client on SIGINT:', err && err.message);
+      log.warn('Error quitting Redis client on SIGINT:', err && err.message);
   }
   server.close(() => {
     console.log('Server closed.');
