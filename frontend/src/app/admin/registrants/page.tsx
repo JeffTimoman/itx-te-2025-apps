@@ -3,11 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import AdminHeader from "../../../components/AdminHeader";
 
-type Winner = {
-  name: string;
-  gacha_code?: string | null;
-  is_assigned?: string | null;
-};
+type Winner = { name: string; gacha_code?: string | null; is_assigned?: string | null };
 type Row = {
   gift_id: number;
   gift_name: string;
@@ -43,9 +39,7 @@ export default function WinnersPage() {
   const [giftFilter, setGiftFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [winnerFilter, setWinnerFilter] = useState("");
-  const [assignedFilter, setAssignedFilter] = useState<
-    "all" | "assigned" | "unassigned"
-  >("all");
+  const [assignedFilter, setAssignedFilter] = useState<"all" | "assigned" | "unassigned">("all");
 
   // Sorting
   const [sortKey, setSortKey] = useState<SortKey>(null);
@@ -99,17 +93,14 @@ export default function WinnersPage() {
 
     return rows.filter((r) => {
       // Toolbar category dropdown
-      const catOkToolbar =
-        category === "all" || (r.category_name || "") === category;
+      const catOkToolbar = category === "all" || (r.category_name || "") === category;
 
       // Toolbar free text
       const winnersHay = (r.winners || [])
         .map((w) => `${w.name}|${w.gacha_code || ""}|${w.is_assigned || "N"}`)
         .join("|")
         .toLowerCase();
-      const hay = `${r.gift_name}|${
-        r.category_name || ""
-      }|${winnersHay}`.toLowerCase();
+      const hay = `${r.gift_name}|${r.category_name || ""}|${winnersHay}`.toLowerCase();
       const qOk = !q || hay.includes(q);
 
       // Header: gift & category text filters
@@ -119,30 +110,20 @@ export default function WinnersPage() {
       // Header: winners (text + assigned filter)
       const assignedOk = (w: Winner) =>
         assignedFilter === "all" ||
-        (assignedFilter === "assigned"
-          ? w.is_assigned === "Y"
-          : w.is_assigned !== "Y");
+        (assignedFilter === "assigned" ? w.is_assigned === "Y" : w.is_assigned !== "Y");
 
       const anyWinnerMatch =
-        r.winners && r.winners.length > 0
+        (r.winners && r.winners.length > 0
           ? r.winners.some((w) => {
               const text = `${w.name}|${w.gacha_code || ""}`.toLowerCase();
               return (!wf || text.includes(wf)) && assignedOk(w);
             })
           : // no winners: only pass if no specific winner text and not requiring "assigned"
-            !wf && assignedFilter !== "assigned";
+            (!wf && assignedFilter !== "assigned"));
 
       return catOkToolbar && qOk && gfOk && cfOk && anyWinnerMatch;
     });
-  }, [
-    rows,
-    query,
-    category,
-    giftFilter,
-    categoryFilter,
-    winnerFilter,
-    assignedFilter,
-  ]);
+  }, [rows, query, category, giftFilter, categoryFilter, winnerFilter, assignedFilter]);
 
   // Sorting
   const sorted = useMemo(() => {
@@ -158,13 +139,8 @@ export default function WinnersPage() {
     copy.sort((a, b) => {
       let res = 0;
       if (sortKey === "gift") res = cmpStr(a.gift_name, b.gift_name);
-      else if (sortKey === "category")
-        res = cmpStr(
-          a.category_name || "~~~",
-          b.category_name || "~~~"
-        ); // empties last
-      else if (sortKey === "winners")
-        res = (a.winners?.length ?? 0) - (b.winners?.length ?? 0);
+      else if (sortKey === "category") res = cmpStr(a.category_name || "~~~", b.category_name || "~~~"); // empties last
+      else if (sortKey === "winners") res = (a.winners?.length ?? 0) - (b.winners?.length ?? 0);
       return sortDir === "asc" ? res : -res;
     });
     return copy;
@@ -181,17 +157,7 @@ export default function WinnersPage() {
   // Reset page on filter/sort/page size change
   useEffect(() => {
     setPage(1);
-  }, [
-    query,
-    category,
-    giftFilter,
-    categoryFilter,
-    winnerFilter,
-    assignedFilter,
-    sortKey,
-    sortDir,
-    pageSize,
-  ]);
+  }, [query, category, giftFilter, categoryFilter, winnerFilter, assignedFilter, sortKey, sortDir, pageSize]);
 
   function copy(text: string) {
     navigator.clipboard.writeText(text);
@@ -202,44 +168,25 @@ export default function WinnersPage() {
     const lines: string[] = [headers.join(",")];
     sorted.forEach((r, idx) => {
       if (!r.winners || r.winners.length === 0) {
-        lines.push(
-          [idx + 1, esc(r.gift_name), esc(r.category_name || ""), "", ""].join(
-            ","
-          )
-        );
+        lines.push([idx + 1, esc(r.gift_name), esc(r.category_name || ""), "", ""].join(","));
       } else {
         r.winners.forEach((w) => {
           const code = w.is_assigned === "Y" ? "" : w.gacha_code || "";
-          lines.push(
-            [
-              idx + 1,
-              esc(r.gift_name),
-              esc(r.category_name || ""),
-              esc(w.name),
-              esc(code),
-            ].join(",")
-          );
+          lines.push([idx + 1, esc(r.gift_name), esc(r.category_name || ""), esc(w.name), esc(code)].join(","));
         });
       }
     });
-    const blob = new Blob([lines.join("\n")], {
-      type: "text/csv;charset=utf-8;",
-    });
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `winners_${new Date()
-      .toISOString()
-      .slice(0, 19)
-      .replace(/[:T]/g, "-")}.csv`;
+    a.download = `winners_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
   function esc(v: string) {
-    return v.includes(",") || v.includes("\n") || v.includes('"')
-      ? '"' + v.replace(/"/g, '""') + '"'
-      : v;
+    return v.includes(",") || v.includes("\n") || v.includes('"') ? '"' + v.replace(/"/g, '""') + '"' : v;
   }
 
   // Sort toggler
@@ -265,10 +212,7 @@ export default function WinnersPage() {
         >
           {loading ? "Refreshing…" : "Refresh"}
         </button>
-        <button
-          onClick={exportCSV}
-          className="px-3 py-1.5 rounded-lg bg-indigo-500/90 hover:bg-indigo-500 text-xs"
-        >
+        <button onClick={exportCSV} className="px-3 py-1.5 rounded-lg bg-indigo-500/90 hover:bg-indigo-500 text-xs">
           Export CSV
         </button>
       </AdminHeader>
@@ -313,11 +257,7 @@ export default function WinnersPage() {
         </section>
 
         {/* Error */}
-        {error && (
-          <div className="rounded-2xl p-4 bg-rose-900/40 border border-rose-400/40 text-rose-100">
-            {error}
-          </div>
-        )}
+        {error && <div className="rounded-2xl p-4 bg-rose-900/40 border border-rose-400/40 text-rose-100">{error}</div>}
 
         {/* Table */}
         <section className="rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
@@ -334,13 +274,7 @@ export default function WinnersPage() {
                     sortable
                     active={sortKey === "gift"}
                     dir={sortDir}
-                    ariaSort={
-                      sortKey === "gift"
-                        ? sortDir === "asc"
-                          ? "ascending"
-                          : "descending"
-                        : "none"
-                    }
+                    ariaSort={sortKey === "gift" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
                     onClick={() => toggleSort("gift", true)}
                   >
                     Gift
@@ -350,13 +284,7 @@ export default function WinnersPage() {
                     sortable
                     active={sortKey === "category"}
                     dir={sortDir}
-                    ariaSort={
-                      sortKey === "category"
-                        ? sortDir === "asc"
-                          ? "ascending"
-                          : "descending"
-                        : "none"
-                    }
+                    ariaSort={sortKey === "category" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
                     onClick={() => toggleSort("category", true)}
                   >
                     Category
@@ -366,13 +294,7 @@ export default function WinnersPage() {
                     sortable
                     active={sortKey === "winners"}
                     dir={sortDir}
-                    ariaSort={
-                      sortKey === "winners"
-                        ? sortDir === "asc"
-                          ? "ascending"
-                          : "descending"
-                        : "none"
-                    }
+                    ariaSort={sortKey === "winners" ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
                     onClick={() => toggleSort("winners", true)}
                   >
                     Winners
@@ -381,9 +303,7 @@ export default function WinnersPage() {
 
                 {/* Header filter inputs (sticky) */}
                 <tr className="text-left border-t border-white/10">
-                  <th className="p-2 text-[11px] font-normal text-slate-300/80">
-                    —
-                  </th>
+                  <th className="p-2 text-[11px] font-normal text-slate-300/80">—</th>
                   <th className="p-2">
                     <input
                       value={giftFilter}
@@ -410,9 +330,7 @@ export default function WinnersPage() {
                       />
                       <select
                         value={assignedFilter}
-                        onChange={(e) =>
-                          setAssignedFilter(e.target.value as any)
-                        }
+                        onChange={(e) => setAssignedFilter(e.target.value as any)}
                         className="p-2 rounded-lg bg-white/10 border border-white/20"
                         title="Assignment status"
                       >
@@ -444,18 +362,11 @@ export default function WinnersPage() {
                   </tr>
                 ) : (
                   paged.map((r, idx) => (
-                    <tr
-                      key={r.gift_id}
-                      className="border-t border-white/10 hover:bg-white/5"
-                    >
-                      <td className="p-3 whitespace-nowrap">
-                        {(pageSafe - 1) * pageSize + idx + 1}
-                      </td>
+                    <tr key={r.gift_id} className="border-t border-white/10 hover:bg-white/5">
+                      <td className="p-3 whitespace-nowrap">{(pageSafe - 1) * pageSize + idx + 1}</td>
                       <td className="p-3 min-w-[16rem]">{r.gift_name}</td>
                       <td className="p-3 whitespace-nowrap">
-                        {r.category_name || (
-                          <span className="opacity-60">—</span>
-                        )}
+                        {r.category_name || <span className="opacity-60">—</span>}
                       </td>
                       <td className="p-3">
                         {!r.winners || r.winners.length === 0 ? (
@@ -467,9 +378,7 @@ export default function WinnersPage() {
                                 key={i}
                                 className="inline-flex items-center gap-2 px-2 py-1 rounded-lg bg-white/10 border border-white/20"
                               >
-                                <span className="text-[13px] font-medium">
-                                  {w.name}
-                                </span>
+                                <span className="text-[13px] font-medium">{w.name}</span>
                                 {w.is_assigned !== "Y" && w.gacha_code && (
                                   <button
                                     onClick={() => copy(w.gacha_code!)}
@@ -494,9 +403,7 @@ export default function WinnersPage() {
           {/* Pagination */}
           <div className="flex items-center justify-between px-4 py-3 border-t border-white/10 text-xs">
             <div className="opacity-80">
-              Showing <strong>{paged.length}</strong> of{" "}
-              <strong>{sorted.length}</strong> result
-              {sorted.length !== 1 ? "s" : ""}
+              Showing <strong>{paged.length}</strong> of <strong>{sorted.length}</strong> result{sorted.length !== 1 ? "s" : ""}
             </div>
             <div className="flex items-center gap-1">
               <button
@@ -541,8 +448,7 @@ function Th({
   ariaSort?: "none" | "ascending" | "descending";
   title?: string;
 }) {
-  const base =
-    "p-3 text-[11px] font-semibold uppercase tracking-wider text-slate-200/90";
+  const base = "p-3 text-[11px] font-semibold uppercase tracking-wider text-slate-200/90";
   if (!sortable) {
     return (
       <th className={base + " opacity-70"} aria-sort={ariaSort} title={title}>
@@ -560,9 +466,7 @@ function Th({
         }
       >
         <span>{children}</span>
-        <span className="text-[10px] opacity-80">
-          {active ? (dir === "asc" ? "▲" : "▼") : "↕"}
-        </span>
+        <span className="text-[10px] opacity-80">{active ? (dir === "asc" ? "▲" : "▼") : "↕"}</span>
       </button>
     </th>
   );
