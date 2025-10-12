@@ -74,7 +74,9 @@ export default function AdminHeader({
     <header className="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-white/5 border-b border-white/10">
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-xl bg-white/10 grid place-content-center text-sm font-bold">ITX</div>
+          <div className="h-8 w-8 rounded-xl bg-white/10 grid place-content-center text-sm font-bold">
+            ITX
+          </div>
           <div className="relative" ref={menuRef}>
             <button
               aria-haspopup="true"
@@ -83,19 +85,79 @@ export default function AdminHeader({
               className="text-sm sm:text-base font-semibold px-2 py-1 rounded hover:bg-white/5 flex items-center gap-2"
             >
               <span>{title}</span>
-              <svg className="h-4 w-4 opacity-80" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z" clipRule="evenodd"/></svg>
+              <svg
+                className="h-4 w-4 opacity-80"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z"
+                  clipRule="evenodd"
+                />
+              </svg>
             </button>
 
             {open && (
               <div className="absolute left-0 mt-2 w-56 bg-white/5 border border-white/10 rounded shadow-lg py-1 z-40">
                 <nav className="flex flex-col">
-                  <Link href="/admin/registrants" onClick={() => setOpen(false)} className="px-3 py-2 text-sm hover:bg-white/10">Registrants</Link>
-                  <Link href="/admin/gifts" onClick={() => setOpen(false)} className="px-3 py-2 text-sm hover:bg-white/10">Gifts</Link>
-                  <Link href="/admin/gacha" onClick={() => setOpen(false)} className="px-3 py-2 text-sm hover:bg-white/10">Gacha</Link>
-                  <Link href="/admin/assign_gift" onClick={() => setOpen(false)} className="px-3 py-2 text-sm hover:bg-white/10">Assign Gift</Link>
-                  <Link href="/admin/game" onClick={() => setOpen(false)} className="px-3 py-2 text-sm hover:bg-white/10">Game</Link>
-                  <Link href="/admin/generate" onClick={() => setOpen(false)} className="px-3 py-2 text-sm hover:bg-white/10">Generate (QR)</Link>
-                  <Link href="/admin/winners" onClick={() => setOpen(false)} className="px-3 py-2 text-sm hover:bg-white/10">Winners</Link>
+                  <Link
+                    href="/admin/registrants"
+                    onClick={() => setOpen(false)}
+                    className="px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    Registrants
+                  </Link>
+                  <Link
+                    href="/admin/gifts"
+                    onClick={() => setOpen(false)}
+                    className="px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    Gifts
+                  </Link>
+                  <Link
+                    href="/admin/gacha"
+                    onClick={() => setOpen(false)}
+                    className="px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    Gacha
+                  </Link>
+                  <Link
+                    href="/admin/gacha2"
+                    onClick={() => setOpen(false)}
+                    className="px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    Gacha 2 - Harry Potter Ver
+                  </Link>
+                  <Link
+                    href="/admin/assign_gift"
+                    onClick={() => setOpen(false)}
+                    className="px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    Assign Gift
+                  </Link>
+                  <Link
+                    href="/admin/game"
+                    onClick={() => setOpen(false)}
+                    className="px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    Game
+                  </Link>
+                  <Link
+                    href="/admin/generate"
+                    onClick={() => setOpen(false)}
+                    className="px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    Generate (QR)
+                  </Link>
+                  <Link
+                    href="/admin/winners"
+                    onClick={() => setOpen(false)}
+                    className="px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    Winners
+                  </Link>
                 </nav>
               </div>
             )}
@@ -113,19 +175,28 @@ export default function AdminHeader({
                 title={user.name || user.username}
               >
                 {(() => {
-                  const n = user.name || user.username || '';
+                  const n = user.name || user.username || "";
                   const parts = n.split(/\s+/).filter(Boolean);
-                  if (parts.length === 0) return 'U';
-                  if (parts.length === 1) return parts[0].slice(0,2).toUpperCase();
-                  return (parts[0][0] + parts[parts.length-1][0]).toUpperCase();
+                  if (parts.length === 0) return "U";
+                  if (parts.length === 1)
+                    return parts[0].slice(0, 2).toUpperCase();
+                  return (
+                    parts[0][0] + parts[parts.length - 1][0]
+                  ).toUpperCase();
                 })()}
               </button>
 
               {userOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-white/5 border border-white/10 rounded shadow-lg py-2 z-50">
                   <div className="px-3 py-2 text-sm">
-                    <div className="font-medium">{user.name || user.username}</div>
-                    <div className="text-xs opacity-80 mt-1 px-1"><span className="px-2 py-0.5 rounded bg-white/10 text-[11px]">{user.role}</span></div>
+                    <div className="font-medium">
+                      {user.name || user.username}
+                    </div>
+                    <div className="text-xs opacity-80 mt-1 px-1">
+                      <span className="px-2 py-0.5 rounded bg-white/10 text-[11px]">
+                        {user.role}
+                      </span>
+                    </div>
                   </div>
                   <div className="border-t border-white/10 mt-1 pt-1 px-2">
                     <AdminLogout />
@@ -134,7 +205,12 @@ export default function AdminHeader({
               )}
             </div>
           ) : (
-            <Link href="/admin/login" className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15">Login</Link>
+            <Link
+              href="/admin/login"
+              className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15"
+            >
+              Login
+            </Link>
           )}
         </div>
       </div>

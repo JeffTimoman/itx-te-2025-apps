@@ -83,10 +83,10 @@ export default function VerificationFinishPage() {
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-[#7c1e1e]/70 border border-amber-900/40 grid place-content-center text-sm font-black font-[Cinzel,serif]">
-              HP
+              ITX
             </div>
             <h1 className="text-sm sm:text-base font-semibold font-[Cinzel,serif] glow">
-              Hogwarts Registry
+              ITX TE Registry
             </h1>
           </div>
         </div>
@@ -122,14 +122,8 @@ export default function VerificationFinishPage() {
 
           <div className="mt-8 flex flex-col items-center justify-center gap-3 text-sm font-[Crimson_Pro,serif]">
             <p className="opacity-90">
-              Check your owl post (email) or spam box for confirmation.
+              Check your owl post (email) or spam box for secrets code.
             </p>
-            <Link
-              href="/"
-              className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#7c1e1e]/80 hover:bg-[#8f2525] border border-amber-900/40 text-amber-100 font-semibold transition-all"
-            >
-              Return to Home
-            </Link>
           </div>
         </div>
       </main>

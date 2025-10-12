@@ -1039,7 +1039,7 @@ export default function JoinPage() {
                 </span>
               ) : (
                 <span className="opacity-85">
-                  Hogwarts Tap Duel — Enter Chamber to Play!
+                  ITX Tap Duels - Let's Play and Score Points
                 </span>
               )}
             </div>
@@ -1064,7 +1064,7 @@ export default function JoinPage() {
                 Hogwarts Tap Duel
               </h1>
               <p className="mt-3 text-sm leading-relaxed text-amber-200/90 font-[Crimson Pro,serif]">
-                A friendly duel of reflexes. First to cast wins.
+                Wanna Know Who is First? Tap and become the first!
               </p>
               <ul className="mt-6 space-y-2 text-sm text-amber-200/90 font-[Crimson Pro,serif]">
                 <li>
@@ -1263,11 +1263,11 @@ export default function JoinPage() {
                 Auto-leave in {INACTIVITY_SECONDS / 60} min of inactivity
               </span>
             ) : (
-              <span>Hogwarts Games Committee</span>
+              <span>Panitia TE ITX</span>
             )}
           </div>
           <div className="hidden sm:block pointer-events-auto opacity-85 font-[Cinzel,serif]">
-            Tap Duel
+            Ready, set, go!
           </div>
         </div>
       </footer>

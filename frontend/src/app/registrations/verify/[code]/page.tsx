@@ -446,7 +446,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
         <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-[#7c1e1e]/70 border border-amber-900/40 grid place-content-center text-sm font-black font-[Cinzel,serif]">
-              HP
+              ITX
             </div>
             <h1 className="text-sm sm:text-base font-semibold font-[Cinzel,serif]">
               Verify Registration
@@ -538,13 +538,6 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                onClick={() => setManualMode(true)}
-                className="self-start text-xs opacity-85 hover:opacity-100 font-[Crimson_Pro,serif]"
-              >
-                Can’t find your name? Enter ID instead
-              </button>
             </div>
           ) : (
             <div className="grid gap-2">
