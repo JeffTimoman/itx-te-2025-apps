@@ -51,6 +51,7 @@ export default function GachaPage() {
   // ui
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null); // ✅ soft message instead of alert
   const [stage, setStage] = useState<
     "idle" | "drawing" | "reveal" | "refresh-reveal"
   >("idle");
@@ -72,12 +73,10 @@ export default function GachaPage() {
   const prefixTimer = useRef<number | null>(null);
   const suffixTimer = useRef<number | null>(null);
 
-  // confetti instance (works in fullscreen) — the library's `create` returns a
-  // callable instance that we invoke to burst confetti.
+  // confetti instance (works in fullscreen)
   const confettiInstanceRef = useRef<
     import("canvas-confetti").ConfettiFn | null
   >(null);
-
   const confettiCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // derived
@@ -128,27 +127,23 @@ export default function GachaPage() {
   async function enterFullscreen() {
     try {
       await hostRef.current?.requestFullscreen();
-      // (re)bind confetti to the fullscreen host element
       await ensureConfettiInstance();
     } catch {}
   }
   async function exitFullscreen() {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
-      // (re)bind confetti back to document.body (hostRef still works, keep it consistent)
       await ensureConfettiInstance();
     } catch {}
   }
 
-  // parse code:
-  // Expect "<first8>-<10digits>" but we are tolerant: take first segment's first 8 chars;
-  // second segment: first 10 digits (pad with X if fewer).
+  // parse code
   function splitCode(code?: string | null): { prefix: string; suffix: string } {
     if (!code) return { prefix: "", suffix: "" };
     const [preRaw = "", sufRaw = ""] = code.split("-");
     const prefix = preRaw.slice(0, 8);
     const digits = (sufRaw.match(/\d/g) || []).join("").slice(0, SUFFIX_LEN);
-    const suffix = digits.padEnd(SUFFIX_LEN, "0"); // keep digits; pad with zeros
+    const suffix = digits.padEnd(SUFFIX_LEN, "0");
     return { prefix, suffix };
   }
 
@@ -156,7 +151,6 @@ export default function GachaPage() {
   async function ensureConfettiInstance() {
     const confettiMod = await import("canvas-confetti");
 
-    // Choose where to mount the canvas
     const root =
       (document.fullscreenElement as HTMLElement | null) ??
       hostRef.current ??
@@ -181,11 +175,21 @@ export default function GachaPage() {
     root.appendChild(canvas);
     confettiCanvasRef.current = canvas;
 
-    // Bind confetti to the *canvas*, not the root
+    // Bind confetti to the canvas
     confettiInstanceRef.current = confettiMod.create(canvas, {
       resize: true,
-      useWorker: false, // more compatible than worker/offscreen in many setups
+      useWorker: false,
     });
+  }
+
+  function removeConfettiCanvas() {
+    if (confettiCanvasRef.current?.parentNode) {
+      confettiCanvasRef.current.parentNode.removeChild(
+        confettiCanvasRef.current
+      );
+    }
+    confettiCanvasRef.current = null;
+    confettiInstanceRef.current = null;
   }
 
   async function burstConfetti(power: "big" | "small") {
@@ -197,7 +201,7 @@ export default function GachaPage() {
       startVelocity: power === "big" ? 55 : 35,
       ticks: power === "big" ? 400 : 250,
       gravity: 0.9,
-      zIndex: 2147483647, // make absolutely sure it's on top
+      zIndex: 2147483647,
     } as const;
 
     const center = { x: 0.5, y: 0.45 };
@@ -223,12 +227,23 @@ export default function GachaPage() {
     return () => {
       if (prefixTimer.current) window.clearTimeout(prefixTimer.current);
       if (suffixTimer.current) window.clearTimeout(suffixTimer.current);
-      if (confettiCanvasRef.current?.parentNode) {
-        confettiCanvasRef.current.parentNode.removeChild(
-          confettiCanvasRef.current
-        );
-      }
+      removeConfettiCanvas();
     };
+  }, []);
+
+  // ✅ Central reset that returns the gacha to clean state
+  const resetGacha = useCallback(() => {
+    if (prefixTimer.current) window.clearTimeout(prefixTimer.current);
+    if (suffixTimer.current) window.clearTimeout(suffixTimer.current);
+    setPreview(null);
+    setStage("idle");
+    setRevealDone(false);
+    setIsGlitchingPrefix(false);
+    setIsGlitchingSuffix(false);
+    setPrefixDisplay("CCCC2025"); // back to placeholder header
+    setSuffixDisplay("**********");
+    setShowPreviewName(false);
+    removeConfettiCanvas();
   }, []);
 
   // generic glitch helper (used for prefix & suffix)
@@ -249,7 +264,7 @@ export default function GachaPage() {
   }) {
     const alphabetLetters = "ABCDEFGHJKMNPQRSTUVWXYZ";
     const alphabetDigits = "0123456789";
-    const alphabetSymbols = "@#$%&*?+-";
+    const alphabetSymbols = "@#$%&*+-";
     const alphabet = isDigitsOnly
       ? alphabetDigits
       : alphabetLetters + alphabetDigits + alphabetSymbols;
@@ -333,7 +348,6 @@ export default function GachaPage() {
     spectacular: boolean
   ) {
     setRevealDone(false);
-    // initialize displayed values
     setPrefixDisplay(prefix ? "********" : "");
     setSuffixDisplay("**********");
 
@@ -352,7 +366,6 @@ export default function GachaPage() {
           phase: "suffix",
           onDone: () => {
             setRevealDone(true);
-            // confetti AFTER suffix completes
             burstConfetti(spectacular ? "big" : "small");
           },
         });
@@ -397,22 +410,26 @@ export default function GachaPage() {
     }
   }
 
+  // ✅ Save without alert; show soft banner and reset all state
   async function saveWinner() {
     if (!selectedGift || !preview) return setError("No preview available");
     setLoading(true);
     setError(null);
     try {
-      const res = await authFetch(`/api/admin/gifts/${selectedGift}/save-winner`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ registrant_id: preview.id }),
-      });
+      const res = await authFetch(
+        `/api/admin/gifts/${selectedGift}/save-winner`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ registrant_id: preview.id }),
+        }
+      );
       if (!res.ok) throw await res.json();
       await load();
-      setPreview(null);
-      alert("Winner saved");
-      setStage("idle");
-      setRevealDone(true);
+      setSuccess("Winner saved.");
+      resetGacha();
+      // auto-hide success
+      setTimeout(() => setSuccess(null), 2500);
     } catch (e) {
       setError(toMsg(e));
     } finally {
@@ -474,7 +491,9 @@ export default function GachaPage() {
       {!isFullscreen && (
         <AdminHeader title={"Let's become a winner!"}>
           <button
-            onClick={() => (isFullscreen ? exitFullscreen() : enterFullscreen())}
+            onClick={() =>
+              isFullscreen ? exitFullscreen() : enterFullscreen()
+            }
             className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15"
           >
             {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
@@ -490,16 +509,47 @@ export default function GachaPage() {
         </AdminHeader>
       )}
 
-      {/* Fullscreen FAB to toggle menu */}
+      {/* ✅ Fullscreen FAB → hamburger icon with lower opacity */}
       {isFullscreen && (
         <button
           onClick={() => setIsMenuOpen((v) => !v)}
-          className="fixed z-[10000] right-4 bottom-4 rounded-full px-4 py-3 bg-indigo-500/95 hover:bg-indigo-500 border border-white/20 shadow-lg text-white text-sm font-semibold"
-          aria-label="Toggle Menu"
+          className="fixed z-[10000] right-4 bottom-4 rounded-full p-3 bg-slate-900/70 border border-white/20 shadow-lg text-white opacity-80 hover:opacity-100 backdrop-blur-md"
+          aria-label={isMenuOpen ? "Close Menu" : "Open Menu"}
           aria-expanded={isMenuOpen}
           aria-controls="gacha-controls"
         >
-          {isMenuOpen ? "Close Menu" : "Open Menu"}
+          {isMenuOpen ? (
+            // X icon
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          ) : (
+            // Hamburger icon
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="4" y1="6" x2="20" y2="6"></line>
+              <line x1="4" y1="12" x2="20" y2="12"></line>
+              <line x1="4" y1="18" x2="20" y2="18"></line>
+            </svg>
+          )}
         </button>
       )}
 
@@ -716,8 +766,8 @@ export default function GachaPage() {
                     Ready to draw
                   </div>
                   <p className="mt-2 opacity-80">
-                    Check email for code to
-                    <span className="font-semibold">{' Win Reward!'}</span>.
+                    Check email for code to{" "}
+                    <span className="font-semibold">Win Reward!</span>.
                   </p>
                 </motion.div>
               ) : (
@@ -752,7 +802,7 @@ export default function GachaPage() {
                       key={suffixDisplay}
                       initial={{ opacity: 0, scale: 0.96 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      transition={{ 
+                      transition={{
                         type: "spring",
                         stiffness: 300,
                         damping: 20,
@@ -770,6 +820,22 @@ export default function GachaPage() {
           </div>
         </section>
       </main>
+
+      {/* ✅ Soft success banner (auto-hides) */}
+      <AnimatePresence>
+        {success && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 10 }}
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[10001] px-4 py-2 rounded-lg bg-emerald-500/90 border border-emerald-300/30 text-white shadow-lg"
+            role="status"
+            aria-live="polite"
+          >
+            {success}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
