@@ -35,6 +35,8 @@ export default function AdminHeader({
 
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
+  const userRef = useRef<HTMLDivElement | null>(null);
+  const [userOpen, setUserOpen] = useState(false);
 
   const handleDocumentClick = useCallback((e: MouseEvent) => {
     if (!menuRef.current) return;
@@ -51,6 +53,22 @@ export default function AdminHeader({
       document.removeEventListener('keydown', onKey);
     };
   }, [open, handleDocumentClick]);
+
+  const handleUserDocumentClick = useCallback((e: MouseEvent) => {
+    if (!userRef.current) return;
+    if (!userRef.current.contains(e.target as Node)) setUserOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!userOpen) return;
+    document.addEventListener('mousedown', handleUserDocumentClick);
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') setUserOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', handleUserDocumentClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [userOpen, handleUserDocumentClick]);
 
   return (
     <header className="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-white/5 border-b border-white/10">
@@ -86,10 +104,35 @@ export default function AdminHeader({
         <div className="flex items-center gap-2">
           {children}
           {user ? (
-            <>
-              <div className="text-xs opacity-80">{user.name || user.username} <span className="ml-2 px-2 py-0.5 rounded bg-white/10 text-[11px]">{user.role}</span></div>
-              <AdminLogout />
-            </>
+            <div ref={userRef} className="relative">
+              <button
+                aria-haspopup="true"
+                aria-expanded={userOpen}
+                onClick={() => setUserOpen((v) => !v)}
+                className="h-8 w-8 rounded-full bg-white/10 grid place-content-center text-[12px] font-semibold"
+                title={user.name || user.username}
+              >
+                {(() => {
+                  const n = user.name || user.username || '';
+                  const parts = n.split(/\s+/).filter(Boolean);
+                  if (parts.length === 0) return 'U';
+                  if (parts.length === 1) return parts[0].slice(0,2).toUpperCase();
+                  return (parts[0][0] + parts[parts.length-1][0]).toUpperCase();
+                })()}
+              </button>
+
+              {userOpen && (
+                <div className="absolute right-0 mt-2 w-48 bg-white/5 border border-white/10 rounded shadow-lg py-2 z-50">
+                  <div className="px-3 py-2 text-sm">
+                    <div className="font-medium">{user.name || user.username}</div>
+                    <div className="text-xs opacity-80 mt-1 px-1"><span className="px-2 py-0.5 rounded bg-white/10 text-[11px]">{user.role}</span></div>
+                  </div>
+                  <div className="border-t border-white/10 mt-1 pt-1 px-2">
+                    <AdminLogout />
+                  </div>
+                </div>
+              )}
+            </div>
           ) : (
             <Link href="/admin/login" className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15">Login</Link>
           )}
