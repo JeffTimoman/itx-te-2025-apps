@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react";
 import authFetch from "../../../lib/api/client";
+import AdminHeader from "../../../components/AdminHeader";
 import { motion, AnimatePresence } from "framer-motion";
 
 /**
@@ -368,7 +369,7 @@ export default function GachaPage() {
     setIsMenuOpen(false); // hide menu on start
 
     try {
-      const res = await fetch(
+      const res = await authFetch(
         `/api/admin/gifts/${selectedGift}/random-winner`,
         { method: "POST" }
       );
@@ -401,7 +402,7 @@ export default function GachaPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/gifts/${selectedGift}/save-winner`, {
+      const res = await authFetch(`/api/admin/gifts/${selectedGift}/save-winner`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ registrant_id: preview.id }),
@@ -471,36 +472,22 @@ export default function GachaPage() {
 
       {/* Header — HIDE IN FULLSCREEN */}
       {!isFullscreen && (
-        <header className="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-white/5 border-b border-white/10">
-          <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-xl bg-white/10 grid place-content-center text-sm font-bold">
-                ITX
-              </div>
-              <h1 className="text-sm sm:text-base font-semibold">
-                {"Let's become a winner!"}
-              </h1>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() =>
-                  isFullscreen ? exitFullscreen() : enterFullscreen()
-                }
-                className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15"
-              >
-                {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-              </button>
-              <button
-                onClick={() => setIsMenuOpen((v) => !v)}
-                className="px-3 py-1.5 rounded-lg bg-indigo-500/90 hover:bg-indigo-500 text-xs font-semibold"
-                aria-expanded={isMenuOpen}
-                aria-controls="gacha-controls"
-              >
-                {isMenuOpen ? "Close Menu" : "Open Menu"}
-              </button>
-            </div>
-          </div>
-        </header>
+        <AdminHeader title={"Let's become a winner!"}>
+          <button
+            onClick={() => (isFullscreen ? exitFullscreen() : enterFullscreen())}
+            className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15"
+          >
+            {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+          </button>
+          <button
+            onClick={() => setIsMenuOpen((v) => !v)}
+            className="px-3 py-1.5 rounded-lg bg-indigo-500/90 hover:bg-indigo-500 text-xs font-semibold"
+            aria-expanded={isMenuOpen}
+            aria-controls="gacha-controls"
+          >
+            {isMenuOpen ? "Close Menu" : "Open Menu"}
+          </button>
+        </AdminHeader>
       )}
 
       {/* Fullscreen FAB to toggle menu */}
