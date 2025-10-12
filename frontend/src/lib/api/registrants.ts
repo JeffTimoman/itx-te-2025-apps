@@ -14,7 +14,13 @@ export type Registrant = {
 };
 
 async function fetchJson<T>(url: string, opts: RequestInit = {}): Promise<T> {
-  const res = await fetch(url, { credentials: 'include', ...opts });
+  // Attach Authorization Bearer token if available
+  const token = typeof window !== 'undefined' ? localStorage.getItem('itx:admin:token') : null;
+  const headers = Object.assign({}, (opts.headers || {}));
+  if (token && typeof headers === 'object') {
+    Object.assign(headers, { Authorization: `Bearer ${token}` });
+  }
+  const res = await fetch(url, { ...opts, headers });
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`${res.status} ${res.statusText} - ${txt}`);

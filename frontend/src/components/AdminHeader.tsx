@@ -19,7 +19,10 @@ export default function AdminHeader({
     (async () => {
       try {
         const url = BACKEND ? `${BACKEND}/api/admin/session` : '/api/admin/session';
-        const res = await fetch(url, { credentials: 'include' });
+        const token = typeof window !== 'undefined' ? localStorage.getItem('itx:admin:token') : null;
+        const headers: Record<string,string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const res = await fetch(url, { headers });
         const js = await res.json();
         if (!mounted) return;
         setUser(js && js.user ? js.user : null);

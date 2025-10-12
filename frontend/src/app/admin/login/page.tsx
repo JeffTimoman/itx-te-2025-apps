@@ -18,9 +18,13 @@ export default function AdminLoginPage() {
     setLoading(true);
     try {
       const url = BACKEND ? `${BACKEND}/api/admin/login` : '/api/admin/login';
-      const res = await fetch(url, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
       const json = await res.json();
       if (!res.ok) throw new Error(json && json.error ? json.error : 'Login failed');
+      // store token in localStorage for subsequent requests
+      if (json.token) {
+        try { localStorage.setItem('itx:admin:token', json.token); } catch (e) {}
+      }
       router.replace('/admin/registrants');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

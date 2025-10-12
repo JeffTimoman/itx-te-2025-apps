@@ -14,7 +14,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     (async () => {
       try {
         const url = BACKEND ? `${BACKEND}/api/admin/session` : '/api/admin/session';
-        const res = await fetch(url, { credentials: 'include' });
+        const token = typeof window !== 'undefined' ? localStorage.getItem('itx:admin:token') : null;
+        const headers: Record<string,string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const res = await fetch(url, { headers });
         if (!mounted) return;
         const json = await res.json();
         if (!json || !json.user) {
@@ -22,9 +25,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           return;
         }
       } catch {
-          router.replace('/admin/login');
-          return;
-        } finally {
+        router.replace('/admin/login');
+        return;
+      } finally {
         if (mounted) setLoading(false);
       }
     })();

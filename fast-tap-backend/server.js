@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
-const session = require('express-session');
+const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const redis = require('redis');
 require('dotenv').config();
@@ -119,38 +119,41 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-// Session middleware (server-side sessions for simple admin auth)
-// In production, replace the MemoryStore with a persistent store (Redis, Postgres, etc.)
-app.use(session({
-  name: process.env.SESSION_NAME || 'itx.sid',
-  secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    httpOnly: true,
-    // In production we require secure cookies and SameSite=None so the cookie can be sent when
-    // the frontend is hosted on a different origin (e.g., behind a proxy). For local development
-    // we use SameSite=Lax and secure=false so the cookie can be set over HTTP on localhost.
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    domain: process.env.COOKIE_DOMAIN || undefined,
-    maxAge: 24 * 60 * 60 * 1000 // 1 day
-  }
-}));
+// Using stateless JWTs for admin authentication.
+// JWT secret: prefer JWT_SECRET, fall back to SESSION_SECRET for backward compatibility.
+const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'dev-jwt-secret-change-me';
+// Token TTL
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 
 // Simple middleware to require an authenticated admin user for /api/admin routes
 // Roles allowed to access admin routes (comma-separated env var, default 'admin')
 const ADMIN_ALLOWED_ROLES = (process.env.ADMIN_ALLOWED_ROLES || 'admin').split(',').map((r) => String(r).trim()).filter(Boolean);
 
+// JWT verification middleware for admin routes
+function verifyJwt(token) {
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (e) {
+    return null;
+  }
+}
+
 function requireAdmin(req, res, next) {
-  if (!req.session || !req.session.user || !req.session.user.id) {
+  try {
+    const auth = String(req.headers.authorization || '').trim();
+    if (!auth || !auth.toLowerCase().startsWith('bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+    const token = auth.substring(7).trim();
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    const payload = verifyJwt(token);
+    if (!payload || !payload.user || !payload.user.id) return res.status(401).json({ error: 'Unauthorized' });
+    const role = String(payload.user.role || '').trim();
+    if (!ADMIN_ALLOWED_ROLES.includes(role)) return res.status(403).json({ error: 'Forbidden' });
+    // attach user to request for handlers
+    req.user = payload.user;
+    return next();
+  } catch (err) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  const role = String(req.session.user.role || '').trim();
-  if (!ADMIN_ALLOWED_ROLES.includes(role)) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-  return next();
 }
 
 // Socket.IO setup with CORS
@@ -214,31 +217,31 @@ app.post('/api/admin/login', async (req, res) => {
     const user = result.rows[0];
     const ok = await bcrypt.compare(String(password), String(user.password_hash));
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
-    // Set basic session user info
-    req.session.user = { id: user.id, username: user.username, email: user.email, name: user.name, role: user.role };
-    return res.json({ ok: true, user: req.session.user });
+    const payload = { user: { id: user.id, username: user.username, email: user.email, name: user.name, role: user.role } };
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+    return res.json({ ok: true, token, user: payload.user });
   } catch (err) {
     console.error('Login error', err && err.message);
     return res.status(500).json({ error: 'Login failed' });
   }
 });
 
+// With JWTs logout is a client-side operation (drop the token). For convenience we still expose an endpoint
+// that a client can call to indicate logout, but it doesn't need to invalidate server state unless using a blacklist.
 app.post('/api/admin/logout', (req, res) => {
-  try {
-    req.session.destroy(() => {});
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to logout' });
-  }
+  return res.json({ ok: true });
 });
 
 // Public session check for frontend auth checks (placed before admin protection)
+// Public session check: if Authorization Bearer token is present and valid, return user; otherwise null.
 app.get('/api/admin/session', (req, res) => {
   try {
-    if (req.session && req.session.user) {
-      return res.json({ user: req.session.user });
-    }
-    return res.json({ user: null });
+    const auth = String(req.headers.authorization || '').trim();
+    if (!auth || !auth.toLowerCase().startsWith('bearer ')) return res.json({ user: null });
+    const token = auth.substring(7).trim();
+    const payload = verifyJwt(token);
+    if (!payload || !payload.user) return res.json({ user: null });
+    return res.json({ user: payload.user });
   } catch (err) {
     return res.status(500).json({ error: 'Failed to read session' });
   }

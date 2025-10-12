@@ -30,7 +30,8 @@
     "nodemailer": "^6.9.4",
     "bwip-js": "^2.0.10",
     "express-session": "^1.17.3",
-    "bcrypt": "^5.1.0"
+    "bcrypt": "^5.1.0",
+    "jsonwebtoken": "^9.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
