@@ -1026,7 +1026,7 @@ export default function JoinPage() {
         <div className="mx-auto max-w-5xl px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-[#7c1e1e]/70 border border-amber-900/40 grid place-content-center text-sm font-black font-[Cinzel,serif]">
-              HP
+              ITX
             </div>
             <div className="text-sm opacity-85 font-[Crimson Pro,serif]">
               {joined ? (
@@ -1039,7 +1039,7 @@ export default function JoinPage() {
                 </span>
               ) : (
                 <span className="opacity-85">
-                  ITX Tap Duels - Let's Play and Score Points
+                  {"Team Engagement ITX - Let's Play and Score Points"}
                 </span>
               )}
             </div>
