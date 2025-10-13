@@ -289,7 +289,6 @@
 //     </div>
 //   );
 // }
-
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -309,6 +308,189 @@ type Registrant = {
  * Optional fonts (add once in <head>):
  * <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600..900&family=Crimson+Pro:wght@400;600;700&display=swap" rel="stylesheet">
  */
+
+// --- In-file Combobox (type-ahead dropdown) ---
+function RegistrantCombobox({
+  registrants,
+  valueId,
+  onChangeId,
+  onRefresh,
+  fetching,
+  glassClass,
+  onEnterManualMode,
+}: {
+  registrants: Registrant[];
+  valueId: number | null;
+  onChangeId: (id: number | null) => void;
+  onRefresh: () => void;
+  fetching: boolean;
+  glassClass: string;
+  onEnterManualMode: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [hoverIdx, setHoverIdx] = useState(0);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  const filtered = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (!s) return registrants;
+    return registrants.filter((r) =>
+      `${r.name} ${r.bureau ?? ""}`.toLowerCase().includes(s)
+    );
+  }, [registrants, q]);
+
+  const selected = valueId ? registrants.find((r) => r.id === valueId) : null;
+
+  function choose(r: Registrant) {
+    onChangeId(r?.id ?? null);
+    setQ("");
+    setOpen(false);
+  }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <label className="text-[11px] uppercase tracking-wider text-amber-300/80">
+        Select your name
+      </label>
+
+      <div className="mt-2 flex items-center gap-2">
+        <div className="flex-1 relative">
+          <input
+            value={
+              q ||
+              (selected
+                ? `${selected.name}${
+                    selected.bureau ? ` — ${selected.bureau}` : ""
+                  }`
+                : "")
+            }
+            onChange={(e) => {
+              setQ(e.target.value);
+              setOpen(true);
+              setHoverIdx(0);
+              if (valueId) onChangeId(null); // typing clears selection
+            }}
+            onFocus={() => setOpen(true)}
+            onKeyDown={(e) => {
+              if (!open && (e.key === "ArrowDown" || e.key === "Enter")) {
+                setOpen(true);
+                return;
+              }
+              if (!open) return;
+
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setHoverIdx((i) =>
+                  Math.min(i + 1, Math.max(0, filtered.length - 1))
+                );
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setHoverIdx((i) => Math.max(i - 1, 0));
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                if (filtered[hoverIdx]) choose(filtered[hoverIdx]);
+              } else if (e.key === "Escape") {
+                setOpen(false);
+              }
+            }}
+            placeholder="Type to search…"
+            className="w-full p-3 rounded-xl bg-amber-950/20 border border-amber-900/40 outline-none focus:ring-2 focus:ring-amber-400/60"
+            aria-expanded={open}
+            aria-haspopup="listbox"
+            role="combobox"
+          />
+
+          {/* Dropdown */}
+          {open && (
+            <div
+              className={`absolute z-20 mt-2 w-full rounded-xl ${glassClass} shadow-xl`}
+              role="listbox"
+            >
+              <div className="flex items-center justify-between px-3 py-2 text-xs text-amber-200/80">
+                <span>
+                  {filtered.length
+                    ? `Found ${filtered.length} ${
+                        filtered.length > 1 ? "people" : "person"
+                      }`
+                    : "No matches"}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={onRefresh}
+                    disabled={fetching}
+                    className="px-2 py-1 rounded bg-amber-950/40 border border-amber-900/40 disabled:opacity-50"
+                  >
+                    {fetching ? "Refreshing…" : "Refresh"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      onEnterManualMode();
+                    }}
+                    className="px-2 py-1 rounded bg-amber-950/40 border border-amber-900/40"
+                  >
+                    Enter ID manually
+                  </button>
+                </div>
+              </div>
+
+              <div className="max-h-64 overflow-auto py-1">
+                {filtered.map((r, idx) => (
+                  <button
+                    key={r.id}
+                    type="button"
+                    role="option"
+                    aria-selected={valueId === r.id}
+                    onMouseEnter={() => setHoverIdx(idx)}
+                    onClick={() => choose(r)}
+                    className={`w-full text-left px-3 py-2 text-sm transition
+                      ${idx === hoverIdx ? "bg-amber-900/40" : ""}
+                      ${valueId === r.id ? "bg-emerald-900/30" : ""}`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="truncate">{r.name}</span>
+                      {r.bureau && (
+                        <span className="text-amber-200/70 text-xs shrink-0">
+                          {r.bureau}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Clear current selection */}
+        <button
+          type="button"
+          onClick={() => {
+            setQ("");
+            onChangeId(null);
+          }}
+          className="px-3 py-2 rounded-lg bg-amber-950/30 border border-amber-900/40"
+        >
+          Clear
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function VerifyPage({ params }: { params: { code: string } }) {
   const code = params.code;
   const router = useRouter();
@@ -316,11 +498,13 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
   const [registrants, setRegistrants] = useState<Registrant[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+
   const [fetching, setFetching] = useState(false);
   const [fetchErr, setFetchErr] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
+
   const [manualMode, setManualMode] = useState(false);
   const [manualId, setManualId] = useState<string>("");
 
@@ -335,14 +519,6 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
       : !!selectedId;
     return idOk && emailValid && !loading;
   }, [manualMode, manualId, selectedId, emailValid, loading]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return registrants;
-    return registrants.filter((r) =>
-      `${r.name} ${r.bureau || ""}`.toLowerCase().includes(q)
-    );
-  }, [registrants, query]);
 
   async function fetchRegistrants() {
     setFetching(true);
@@ -369,6 +545,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
     return () => {
       if (timerRef.current) window.clearInterval(timerRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -437,7 +614,11 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
       }}
     >
       <style>{`
-        @keyframes candleGlow { 0% { text-shadow: 0 0 10px rgba(212,175,55,0.45), 0 0 2px rgba(255,235,195,0.35);} 50% { text-shadow: 0 0 22px rgba(212,175,55,0.85), 0 0 6px rgba(255,235,195,0.55);} 100% { text-shadow: 0 0 10px rgba(212,175,55,0.45), 0 0 2px rgba(255,235,195,0.35);} }
+        @keyframes candleGlow {
+          0% { text-shadow: 0 0 10px rgba(212,175,55,0.45), 0 0 2px rgba(255,235,195,0.35);}
+          50% { text-shadow: 0 0 22px rgba(212,175,55,0.85), 0 0 6px rgba(255,235,195,0.55);}
+          100% { text-shadow: 0 0 10px rgba(212,175,55,0.45), 0 0 2px rgba(255,235,195,0.35);}
+        }
         .glow { animation: candleGlow 2.4s ease-in-out infinite; }
       `}</style>
 
@@ -467,7 +648,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
       <main className="max-w-3xl mx-auto px-4 py-8">
         <p className="text-amber-200/90 text-sm font-[Crimson_Pro,serif]">
           Select your name and enter your email to receive your winning code.
-          This link is single‑use and expires after ~15 minutes.
+          This link is single-use and expires after ~15 minutes.
         </p>
 
         {status && (
@@ -503,42 +684,15 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
           className={`mt-6 grid gap-4 rounded-2xl p-6 ${glass}`}
         >
           {!manualMode ? (
-            <div className="grid gap-2">
-              <label className="text-[11px] uppercase tracking-wider text-amber-300/80">
-                Select your name
-              </label>
-              <div className="flex gap-2 items-center">
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search name/biro"
-                  className="flex-1 p-3 rounded-xl bg-amber-950/20 border border-amber-900/40 outline-none focus:ring-2 focus:ring-amber-400/60"
-                />
-                <button
-                  type="button"
-                  onClick={fetchRegistrants}
-                  disabled={fetching}
-                  className="px-3 py-2 rounded-lg bg-amber-950/30 border border-amber-900/40 disabled:opacity-50"
-                >
-                  {fetching ? "Refreshing…" : "Refresh"}
-                </button>
-              </div>
-              <select
-                value={selectedId ?? ""}
-                onChange={(e) =>
-                  setSelectedId(e.target.value ? Number(e.target.value) : null)
-                }
-                className="p-3 rounded-xl bg-amber-950/20 border border-amber-900/40 outline-none focus:ring-2 focus:ring-amber-400/60"
-              >
-                <option value="">— Select your name —</option>
-                {filtered.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                    {r.bureau ? ` — ${r.bureau}` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <RegistrantCombobox
+              registrants={registrants}
+              valueId={selectedId}
+              onChangeId={(id) => setSelectedId(id)}
+              onRefresh={fetchRegistrants}
+              fetching={fetching}
+              glassClass={glass}
+              onEnterManualMode={() => setManualMode(true)}
+            />
           ) : (
             <div className="grid gap-2">
               <label className="text-[11px] uppercase tracking-wider text-amber-300/80">
