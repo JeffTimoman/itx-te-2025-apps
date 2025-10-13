@@ -14,17 +14,11 @@ import { motion, AnimatePresence } from "framer-motion";
 /**
  * GachaPage — parchment + candlelight + AUDIO (Harry Potter vibe)
  *
- * Sound design goals:
- * - On "Get Winner": start a soft DRUM ROLL loop + airy whooshes during the scramble
- * - On final reveal: chime/fanfare + confetti burst
- * - On refresh reveal: lighter percussion tick and soft chime
- * - Menu controls: Mute toggle + Volume slider
- *
- * How to provide your own audio (optional):
- *   Set any of these env vars to absolute URLs (CDN, /public, etc.):
- *     NEXT_PUBLIC_SFX_DRUMLOOP, NEXT_PUBLIC_SFX_WHOOSH, NEXT_PUBLIC_SFX_TICK,
- *     NEXT_PUBLIC_SFX_CHIME, NEXT_PUBLIC_SFX_FANFARE
- *   If not provided, the app synthesizes simple tones via Web Audio.
+ * Fixes:
+ * 1) Ensure WebAudio context resumes on interaction (some browsers start "suspended").
+ * 2) Route every sound through masterGain so Mute/Volume always work.
+ * 3) Make menu controls call ensureCtx() before changing volume/mute.
+ * 4) Keep your /public/*.mp3 fallbacks.
  */
 
 type GiftAvail = {
@@ -54,6 +48,7 @@ const SUFFIX_LEN = 10; // 10 digits
 // ------------------
 // Audio Engine (Web Audio)
 // ------------------
+
 type LoopEntry =
   | { src: AudioBufferSourceNode; gain: GainNode }
   | { stop: () => void }
@@ -69,9 +64,6 @@ class AudioKit {
   volume = 0.9;
 
   urls = {
-    // Default to files placed in the Next `public/` folder under `/sfx/...`.
-    // You can override any of these with NEXT_PUBLIC_SFX_* env vars if needed.
-    // mapped to the files currently present in frontend/public
     drumloop: process.env.NEXT_PUBLIC_SFX_DRUMLOOP || "/drum-roll.mp3",
     whoosh: process.env.NEXT_PUBLIC_SFX_WHOOSH || "/whoosh.mp3",
     tick: process.env.NEXT_PUBLIC_SFX_TICK || "/clock-ticking.mp3",
@@ -79,48 +71,51 @@ class AudioKit {
     fanfare: process.env.NEXT_PUBLIC_SFX_FANFARE || "/fanfare.mp3",
   } as const;
 
-  async init() {
-    if (this.ctx) return;
-    const audioWindow = window as Window & {
-      AudioContext?: typeof AudioContext;
-      webkitAudioContext?: typeof AudioContext;
-    };
-    const Ctx = audioWindow.AudioContext ?? audioWindow.webkitAudioContext;
-    if (!Ctx) return; // no web audio available
-    this.ctx = new Ctx();
-    const ctx = this.ctx;
-    this.masterGain = ctx.createGain();
-    this.masterGain.gain.value = this.muted ? 0 : this.volume;
+  // Create or resume the context; safe to call on every user gesture
+  async ensureCtx() {
+    if (!this.ctx) {
+      const audioWindow = window as Window & {
+        AudioContext?: typeof AudioContext;
+        webkitAudioContext?: typeof AudioContext;
+      };
+      const Ctx = audioWindow.AudioContext ?? audioWindow.webkitAudioContext;
+      if (!Ctx) return; // WebAudio unavailable
+      this.ctx = new Ctx();
 
-    this.lowpass = ctx.createBiquadFilter();
-    this.lowpass.type = "lowpass";
-    this.lowpass.frequency.value = 18000; // neutral
+      // Nodes
+      this.masterGain = this.ctx.createGain();
+      this.lowpass = this.ctx.createBiquadFilter();
+      this.lowpass.type = "lowpass";
+      this.lowpass.frequency.value = 18000; // neutral
 
-    // safe local refs
-    const lp = this.lowpass;
-    const mg = this.masterGain;
+      // Wiring: everything -> lowpass -> masterGain -> destination
+      this.lowpass.connect(this.masterGain);
+      this.masterGain.connect(this.ctx.destination);
 
-    if (lp && mg) {
-      lp.connect(mg);
-      mg.connect(ctx.destination);
+      // Apply current mute/volume
+      this.masterGain.gain.value = this.muted ? 0 : this.volume;
+
+      // Preload assets (non‑blocking for small files)
+      await Promise.all(
+        Object.entries(this.urls).map(async ([key, url]) => {
+          if (!url) return (this.buffers[key] = null);
+          try {
+            const res = await fetch(url);
+            const arr = await res.arrayBuffer();
+            if (!this.ctx) return (this.buffers[key] = null);
+            const buf = await this.ctx.decodeAudioData(arr);
+            this.buffers[key] = buf;
+          } catch {
+            this.buffers[key] = null; // fallback to synth
+          }
+        })
+      );
     }
 
-    // Preload external files if given
-    await Promise.all(
-      Object.entries(this.urls).map(async ([key, url]) => {
-        if (!url) return (this.buffers[key] = null);
-        try {
-          const res = await fetch(url);
-          const arr = await res.arrayBuffer();
-          // use local ctx reference
-          if (!this.ctx) return (this.buffers[key] = null);
-          const buf = await this.ctx.decodeAudioData(arr);
-          this.buffers[key] = buf;
-        } catch {
-          this.buffers[key] = null;
-        }
-      })
-    );
+    // Resume if suspended (Chrome/iOS policy)
+    try {
+      if (this.ctx?.state === "suspended") await this.ctx.resume();
+    } catch {}
   }
 
   setMuted(m: boolean) {
@@ -136,56 +131,56 @@ class AudioKit {
 
   // Utility: simple synthesized whoosh if no asset
   synthWhoosh(duration = 0.5) {
-    if (!this.ctx || !this.masterGain || !this.lowpass) return;
-    const ctx = this.ctx;
-    const lowpass = this.lowpass;
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
+    if (!this.ctx || !this.lowpass) return;
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
     o.type = "triangle";
     o.frequency.value = 220;
-    g.gain.setValueAtTime(0.0001, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.05);
-    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+    g.gain.setValueAtTime(0.0001, this.ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.3, this.ctx.currentTime + 0.05);
+    g.gain.exponentialRampToValueAtTime(
+      0.0001,
+      this.ctx.currentTime + duration
+    );
     o.connect(g);
-    g.connect(lowpass);
+    g.connect(this.lowpass);
     o.start();
-    o.frequency.exponentialRampToValueAtTime(60, ctx.currentTime + duration);
-    o.stop(ctx.currentTime + duration + 0.05);
+    o.frequency.exponentialRampToValueAtTime(
+      60,
+      this.ctx.currentTime + duration
+    );
+    o.stop(this.ctx.currentTime + duration + 0.05);
   }
 
   // Utility: tick for refresh mode
   synthTick() {
     if (!this.ctx || !this.lowpass) return;
-    const ctx = this.ctx;
-    const lowpass = this.lowpass;
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
+    const o = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
     o.type = "square";
     o.frequency.value = 880;
     g.gain.value = 0.15;
     o.connect(g);
-    g.connect(lowpass);
+    g.connect(this.lowpass);
     o.start();
-    o.stop(ctx.currentTime + 0.06);
+    o.stop(this.ctx.currentTime + 0.06);
   }
 
   // Utility: chime (HP‑ish)
   synthChime() {
     if (!this.ctx || !this.lowpass) return;
-    const ctx = this.ctx;
-    const lowpass = this.lowpass;
-    const t0 = ctx.currentTime;
-    const freqs = [659.25, 783.99, 987.77]; // E5 G5 B5
+    const t0 = this.ctx.currentTime;
+    const freqs = [659.25, 783.99, 987.77];
     freqs.forEach((f, i) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
+      const o = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
       o.type = "sine";
       o.frequency.value = f;
       g.gain.setValueAtTime(0.0001, t0);
       g.gain.exponentialRampToValueAtTime(0.5 / (i + 1), t0 + 0.02);
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.2 + i * 0.05);
       o.connect(g);
-      g.connect(lowpass);
+      g.connect(this.lowpass!);
       o.start(t0 + i * 0.02);
       o.stop(t0 + 1.3 + i * 0.05);
     });
@@ -194,36 +189,33 @@ class AudioKit {
   // Utility: short fanfare (stacked fifth)
   synthFanfare() {
     if (!this.ctx || !this.lowpass) return;
-    const ctx = this.ctx;
-    const lowpass = this.lowpass;
-    const t0 = ctx.currentTime;
-    const freqs = [392.0, 587.33, 783.99]; // G4 D5 G5
+    const t0 = this.ctx.currentTime;
+    const freqs = [392.0, 587.33, 783.99];
     freqs.forEach((f, i) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
+      const o = this.ctx!.createOscillator();
+      const g = this.ctx!.createGain();
       o.type = "sawtooth";
       o.frequency.value = f;
       g.gain.setValueAtTime(0.0001, t0);
       g.gain.exponentialRampToValueAtTime(0.4 / (i + 1), t0 + 0.04);
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.0 + i * 0.05);
       o.connect(g);
-      g.connect(lowpass);
+      g.connect(this.lowpass!);
       o.start(t0 + i * 0.04);
       o.stop(t0 + 1.1 + i * 0.05);
     });
   }
 
   async play(name: keyof AudioKit["urls"]) {
+    await this.ensureCtx();
     if (!this.ctx) return;
     const buf = this.buffers[name];
     if (buf) {
       const src = this.ctx.createBufferSource();
       src.buffer = buf;
-      if (this.lowpass) src.connect(this.lowpass);
-      else src.connect(this.ctx.destination);
+      src.connect(this.lowpass!);
       src.start();
     } else {
-      // synth fallback
       if (name === "whoosh") this.synthWhoosh();
       else if (name === "tick") this.synthTick();
       else if (name === "chime") this.synthChime();
@@ -232,31 +224,35 @@ class AudioKit {
   }
 
   async startLoop(name: keyof AudioKit["urls"], opts?: { gain?: number }) {
+    await this.ensureCtx();
     if (!this.ctx) return;
     const buf = this.buffers[name];
     if (!buf) {
       // synth substitute: gated low tom pattern
       if (name === "drumloop") {
-        if (!this.lowpass || !this.ctx) return;
-        const ctx = this.ctx;
-        const lowpass = this.lowpass;
-        const g = ctx.createGain();
+        const g = this.ctx.createGain();
         g.gain.value = (opts?.gain ?? 0.6) * 0.6;
-        g.connect(lowpass);
+        g.connect(this.lowpass!);
         let alive = true;
         const tick = () => {
-          if (!alive || !ctx) return;
-          const o = ctx.createOscillator();
-          const eg = ctx.createGain();
+          if (!alive || !this.ctx) return;
+          const o = this.ctx.createOscillator();
+          const eg = this.ctx.createGain();
           o.type = "sine";
           o.frequency.value = 120;
-          eg.gain.setValueAtTime(0.0001, ctx.currentTime);
-          eg.gain.exponentialRampToValueAtTime(0.6, ctx.currentTime + 0.01);
-          eg.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
+          eg.gain.setValueAtTime(0.0001, this.ctx.currentTime);
+          eg.gain.exponentialRampToValueAtTime(
+            0.6,
+            this.ctx.currentTime + 0.01
+          );
+          eg.gain.exponentialRampToValueAtTime(
+            0.0001,
+            this.ctx.currentTime + 0.25
+          );
           o.connect(eg);
           eg.connect(g);
           o.start();
-          o.stop(ctx.currentTime + 0.3);
+          o.stop(this.ctx.currentTime + 0.3);
           this.loops["__drum_synth"] = { stop: () => (alive = false) };
           setTimeout(tick, 300);
         };
@@ -270,8 +266,7 @@ class AudioKit {
     src.buffer = buf;
     src.loop = true;
     src.connect(g);
-    if (this.lowpass) g.connect(this.lowpass);
-    else if (this.ctx) g.connect(this.ctx.destination);
+    g.connect(this.lowpass!);
     src.start();
     this.loops[name] = { src, gain: g };
   }
@@ -284,7 +279,6 @@ class AudioKit {
       } catch {}
     }
     this.loops[name] = null;
-    // stop synth alt if present
     const drumSynth = this.loops["__drum_synth"];
     if (drumSynth && "stop" in drumSynth && name === "drumloop") {
       try {
@@ -418,19 +412,16 @@ export default function GachaPage() {
   // confetti bound to hostRef so it renders in fullscreen too
   async function ensureConfettiInstance() {
     const confettiMod = await import("canvas-confetti");
-
     const root =
       (document.fullscreenElement as HTMLElement | null) ??
       hostRef.current ??
       document.body;
-
     if (confettiCanvasRef.current?.parentNode) {
       confettiCanvasRef.current.parentNode.removeChild(
         confettiCanvasRef.current
       );
     }
     confettiCanvasRef.current = null;
-
     const canvas = document.createElement("canvas");
     canvas.style.position = "fixed";
     canvas.style.inset = "0";
@@ -440,7 +431,6 @@ export default function GachaPage() {
     canvas.style.zIndex = "2147483647";
     root.appendChild(canvas);
     confettiCanvasRef.current = canvas;
-
     confettiInstanceRef.current = confettiMod.create(canvas, {
       resize: true,
       useWorker: false,
@@ -508,11 +498,9 @@ export default function GachaPage() {
     setSuffixDisplay("**********");
     setShowPreviewName(false);
     removeConfettiCanvas();
-    // stop sounds
     audioKit.stopLoop("drumloop");
   }, []);
 
-  // arcane shimmer (renamed but keeps same logic)
   function glitchReveal({
     target,
     spectacular,
@@ -541,7 +529,6 @@ export default function GachaPage() {
         : spectacular
         ? GLITCH_MS_FIRST_SUFFIX
         : GLITCH_MS_REFRESH_SUFFIX;
-
     const DECODE_MS =
       phase === "prefix"
         ? spectacular
@@ -569,7 +556,6 @@ export default function GachaPage() {
         const handle = window.setTimeout(tick, delay);
         if (phase === "prefix") prefixTimer.current = handle;
         else suffixTimer.current = handle;
-        // gentle whoosh ticks during glitch
         if (phase === "suffix" && Math.random() < (spectacular ? 0.18 : 0.1))
           audioKit.play("whoosh");
         if (!spectacular && phase === "suffix" && Math.random() < 0.12)
@@ -589,7 +575,6 @@ export default function GachaPage() {
             : alphabet[Math.floor(Math.random() * alphabet.length)]
         )
         .join("");
-
       onFrame(decoded);
 
       if (t < 1) {
@@ -616,8 +601,6 @@ export default function GachaPage() {
     setRevealDone(false);
     setPrefixDisplay(prefix ? "********" : "");
     setSuffixDisplay("**********");
-
-    // audio: open filter sweep towards reveal
     audioKit.sweepOpen(spectacular ? 2000 : 1000);
 
     glitchReveal({
@@ -635,7 +618,6 @@ export default function GachaPage() {
           phase: "suffix",
           onDone: () => {
             setRevealDone(true);
-            // stop drum, play triumph
             audioKit.stopLoop("drumloop");
             if (spectacular) audioKit.play("fanfare");
             else audioKit.play("chime");
@@ -655,12 +637,9 @@ export default function GachaPage() {
     setIsMenuOpen(false);
 
     try {
-      // IMPORTANT: init audio on user gesture
-      await audioKit.init();
+      await audioKit.ensureCtx();
       audioKit.setMuted(muted);
       audioKit.setVolume(volume);
-
-      // hype start: drum loop + whoosh
       audioKit.startLoop("drumloop", { gain: spectacular ? 0.8 : 0.6 });
       audioKit.play("whoosh");
 
@@ -736,9 +715,8 @@ export default function GachaPage() {
 
   const remaining = (g: GiftAvail) =>
     Math.max(0, (g.quantity ?? 0) - (g.awarded ?? 0));
-  // prefix is derived when needed via splitCode(preview?.gacha_code)
 
-  // 🎨 Theming tokens (tailwind classes)
+  // 🎨 Theming tokens
   const parchmentBg =
     "bg-[radial-gradient(1400px_800px_at_50%_-10%,rgba(244,228,177,0.2),transparent),radial-gradient(900px_520px_at_30%_120%,rgba(107,46,46,0.18),transparent)]";
   const frameBorder = "border-[3px] border-[#7c1e1e]/50 rounded-[22px]";
@@ -754,13 +732,8 @@ export default function GachaPage() {
           "radial-gradient(800px 500px at 50% -10%, rgba(244,228,177,0.18), transparent), radial-gradient(700px 400px at 30% 120%, rgba(124,30,30,0.16), transparent)",
       }}
     >
-      {/* Enchanted styles */}
       <style>{`
-        @keyframes candleGlow {
-          0% { text-shadow: 0 0 10px rgba(212,175,55,0.45), 0 0 2px rgba(255,235,195,0.35); }
-          50% { text-shadow: 0 0 22px rgba(212,175,55,0.85), 0 0 6px rgba(255,235,195,0.55); }
-          100% { text-shadow: 0 0 10px rgba(212,175,55,0.45), 0 0 2px rgba(255,235,195,0.35); }
-        }
+        @keyframes candleGlow { 0% { text-shadow: 0 0 10px rgba(212,175,55,0.45), 0 0 2px rgba(255,235,195,0.35); } 50% { text-shadow: 0 0 22px rgba(212,175,55,0.85), 0 0 6px rgba(255,235,195,0.55); } 100% { text-shadow: 0 0 10px rgba(212,175,55,0.45), 0 0 2px rgba(255,235,195,0.35); } }
         @keyframes runeShimmer { 0% { transform: translate(0,0) } 50% { transform: translate(0.3px,-0.2px) } 100% { transform: translate(0,0) } }
         .glitching { animation: runeShimmer 140ms infinite steps(2,end); }
         .glow { animation: candleGlow 2.4s ease-in-out infinite; }
@@ -769,7 +742,6 @@ export default function GachaPage() {
         .seal-corners:after  { bottom: -10px; right: -10px; }
       `}</style>
 
-      {/* Header — hidden in fullscreen */}
       {!isFullscreen && (
         <AdminHeader title={"Accio Winner!"}>
           <button
@@ -791,7 +763,6 @@ export default function GachaPage() {
         </AdminHeader>
       )}
 
-      {/* Fullscreen FAB */}
       {isFullscreen && (
         <button
           onClick={() => setIsMenuOpen((v) => !v)}
@@ -833,7 +804,6 @@ export default function GachaPage() {
         </button>
       )}
 
-      {/* Menu */}
       <AnimatePresence initial={false}>
         {isMenuOpen && (
           <>
@@ -889,9 +859,10 @@ export default function GachaPage() {
                         type="checkbox"
                         checked={muted}
                         onChange={async (e) => {
-                          await audioKit.init();
-                          setMuted(e.target.checked);
-                          audioKit.setMuted(e.target.checked);
+                          await audioKit.ensureCtx();
+                          const m = e.target.checked;
+                          setMuted(m);
+                          audioKit.setMuted(m);
                         }}
                       />
                       Mute
@@ -903,7 +874,7 @@ export default function GachaPage() {
                       step={0.01}
                       value={volume}
                       onChange={async (e) => {
-                        await audioKit.init();
+                        await audioKit.ensureCtx();
                         const v = Number(e.target.value);
                         setVolume(v);
                         audioKit.setVolume(v);
@@ -932,7 +903,10 @@ export default function GachaPage() {
                       </div>
                     )}
                     {gifts.map((g) => {
-                      const rem = remaining(g);
+                      const rem = Math.max(
+                        0,
+                        (g.quantity ?? 0) - (g.awarded ?? 0)
+                      );
                       const disabled = rem <= 0;
                       return (
                         <label
@@ -987,7 +961,12 @@ export default function GachaPage() {
                         loading ||
                         !selectedGift ||
                         Boolean(
-                          selectedGiftObj && remaining(selectedGiftObj) <= 0
+                          selectedGiftObj &&
+                            Math.max(
+                              0,
+                              (selectedGiftObj.quantity ?? 0) -
+                                (selectedGiftObj.awarded ?? 0)
+                            ) <= 0
                         )
                       }
                       className="px-3 py-2 rounded-md bg-[#7c1e1e] hover:bg-[#8f2525] border border-amber-900/40 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
@@ -1000,7 +979,12 @@ export default function GachaPage() {
                         loading ||
                         !selectedGift ||
                         Boolean(
-                          selectedGiftObj && remaining(selectedGiftObj) <= 0
+                          selectedGiftObj &&
+                            Math.max(
+                              0,
+                              (selectedGiftObj.quantity ?? 0) -
+                                (selectedGiftObj.awarded ?? 0)
+                            ) <= 0
                         )
                       }
                       className="px-3 py-2 rounded-md bg-amber-950/30 hover:bg-amber-950/40 border border-amber-900/40 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
@@ -1044,11 +1028,16 @@ export default function GachaPage() {
                         <span className="text-amber-200/80">Code:</span>{" "}
                         <span className="font-mono">
                           {(() => {
-                            const { prefix, suffix } = splitCode(
-                              preview.gacha_code
+                            const [p, s] = (preview.gacha_code || "").split(
+                              "-"
                             );
+                            const prefix = p?.slice(0, 8) || "";
+                            const digits = (s?.match(/\d/g) || [])
+                              .join("")
+                              .slice(0, 10);
+                            const suffix = (digits || "").padEnd(10, "0");
                             return `${prefix || "********"}-${
-                              suffix ? suffix : "**********"
+                              suffix || "**********"
                             }`;
                           })()}
                         </span>
