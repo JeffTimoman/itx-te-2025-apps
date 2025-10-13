@@ -959,19 +959,6 @@ function RegistrantCombobox({
         </div>
       )}
 
-      {/* Clear current selection */}
-      <div className="mt-2 flex items-center justify-end">
-        <button
-          type="button"
-          onClick={() => {
-            setQ("");
-            onChangeId(null);
-          }}
-          className="px-3 py-2 rounded-lg bg-amber-950/30 border border-amber-900/40"
-        >
-          Clear
-        </button>
-      </div>
     </div>
   );
 }
@@ -1195,16 +1182,6 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
           </div>
 
           <div className="flex items-center gap-2 justify-end">
-            <button
-              type="button"
-              onClick={() => {
-                setEmail("");
-                setSelectedId(null);
-              }}
-              className="px-4 py-2 rounded-lg bg-amber-950/30 border border-amber-900/40"
-            >
-              Clear
-            </button>
             <button
               disabled={!canSubmit}
               className={`px-4 py-2 rounded-lg ${burgundyBtn} disabled:opacity-50`}
