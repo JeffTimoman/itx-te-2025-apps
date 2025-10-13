@@ -1071,7 +1071,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
 
   return (
     <div
-      className={`min-h-screen ${parchmentBg} text-amber-100`}
+      className={`min-h-screen flex flex-col ${parchmentBg} text-amber-100`}
       style={{
         backgroundColor: "#1b1410",
         backgroundImage:
@@ -1110,7 +1110,8 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
       </header>
 
       {/* Main */}
-      <main className="max-w-3xl mx-auto px-4 py-8">
+      <main className="flex-1 flex items-center justify-center px-4 py-8">
+        <div className="max-w-3xl w-full">
         <p className="text-amber-200/90 text-sm font-[Crimson_Pro,serif]">
           Select your name and enter your email to receive your winning code.
           This link is single-use and expires after ~15 minutes.
@@ -1190,6 +1191,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
             </button>
           </div>
         </form>
+        </div>
       </main>
     </div>
   );
