@@ -80,7 +80,12 @@ class AudioKit {
       };
       const Ctx = audioWindow.AudioContext ?? audioWindow.webkitAudioContext;
       if (!Ctx) return; // WebAudio unavailable
+
+      // create context and resume immediately (user gesture required by browsers)
       this.ctx = new Ctx();
+      try {
+        if (this.ctx.state === "suspended") await this.ctx.resume();
+      } catch {}
 
       // Nodes
       this.masterGain = this.ctx.createGain();
@@ -89,11 +94,13 @@ class AudioKit {
       this.lowpass.frequency.value = 18000; // neutral
 
       // Wiring: everything -> lowpass -> masterGain -> destination
-      this.lowpass.connect(this.masterGain);
-      this.masterGain.connect(this.ctx.destination);
+      if (this.lowpass && this.masterGain && this.ctx)
+        this.lowpass.connect(this.masterGain);
+      if (this.masterGain && this.ctx) this.masterGain.connect(this.ctx.destination);
 
-      // Apply current mute/volume
-      this.masterGain.gain.value = this.muted ? 0 : this.volume;
+      // Apply current mute/volume using setValueAtTime for immediate effect
+      if (this.masterGain && this.ctx)
+        this.masterGain.gain.setValueAtTime(this.muted ? 0 : this.volume, this.ctx.currentTime);
 
       // Preload assets (non‑blocking for small files)
       await Promise.all(
@@ -120,13 +127,22 @@ class AudioKit {
 
   setMuted(m: boolean) {
     this.muted = m;
-    if (this.masterGain) this.masterGain.gain.value = m ? 0 : this.volume;
+    if (this.masterGain && this.ctx) {
+      try {
+        this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
+      } catch {}
+      this.masterGain.gain.setValueAtTime(m ? 0 : this.volume, this.ctx.currentTime);
+    }
   }
 
   setVolume(v: number) {
     this.volume = Math.max(0, Math.min(1, v));
-    if (!this.muted && this.masterGain)
-      this.masterGain.gain.value = this.volume;
+    if (!this.muted && this.masterGain && this.ctx) {
+      try {
+        this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
+      } catch {}
+      this.masterGain.gain.setValueAtTime(this.volume, this.ctx.currentTime);
+    }
   }
 
   // Utility: simple synthesized whoosh if no asset
@@ -713,8 +729,7 @@ export default function GachaPage() {
     ensureConfettiInstance();
   }, []);
 
-  const remaining = (g: GiftAvail) =>
-    Math.max(0, (g.quantity ?? 0) - (g.awarded ?? 0));
+  
 
   // 🎨 Theming tokens
   const parchmentBg =
