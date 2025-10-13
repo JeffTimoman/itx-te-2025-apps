@@ -73,6 +73,11 @@ services:
       - "8080:80"
     environment:
       - NEXT_PUBLIC_BACKEND_URL=http://te-itx-2025.site
+      - NEXT_PUBLIC_SFX_DRUMLOOP=http://te-itx-2025.site/drum-roll.mp3
+      - NEXT_PUBLIC_SFX_WHOOSH=http://te-itx-2025.site/whoosh.mp3
+      - NEXT_PUBLIC_SFX_TICK=http://te-itx-2025.site/clock-ticking.mp3
+      - NEXT_PUBLIC_SFX_CHIME=http://te-itx-2025.site/victory-chime.mp3
+      - NEXT_PUBLIC_SFX_FANFARE=http://te-itx-2025.site/fanfare.mp3
     depends_on:
       - backend
     restart: unless-stopped
