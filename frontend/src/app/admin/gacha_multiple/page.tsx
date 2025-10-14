@@ -1232,7 +1232,27 @@ export default function GachaPageMultiple() {
                 </motion.div>
               ) : (
                 <motion.div key={stage} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* responsive grid: center single panel; for 3 winners keep middle centered on larger screens */}
+                  <div className={(() => {
+                    const base = "grid grid-cols-1 gap-6";
+                    let cols = "md:grid-cols-2";
+                    let center = "";
+                    if (winnersCount === 1) {
+                      // single winner: center it
+                      cols = "";
+                      center = "place-items-center";
+                    } else if (winnersCount === 2) {
+                      cols = "md:grid-cols-2";
+                    } else if (winnersCount === 3) {
+                      // three winners: arrange into 3 columns on md+ so the middle sits centered
+                      cols = "md:grid-cols-3";
+                      center = "place-items-center";
+                    } else {
+                      // 4 winners: use 2 columns (2x2)
+                      cols = "md:grid-cols-2";
+                    }
+                    return [base, cols, center].filter(Boolean).join(" ");
+                  })()}>
                     {Array.from({ length: winnersCount }).map((_, i) => {
                       const p = previews[i];
                       const prefix = prefixDisplays[i];
