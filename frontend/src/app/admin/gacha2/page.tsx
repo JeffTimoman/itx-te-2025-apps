@@ -96,11 +96,15 @@ class AudioKit {
       // Wiring: everything -> lowpass -> masterGain -> destination
       if (this.lowpass && this.masterGain && this.ctx)
         this.lowpass.connect(this.masterGain);
-      if (this.masterGain && this.ctx) this.masterGain.connect(this.ctx.destination);
+      if (this.masterGain && this.ctx)
+        this.masterGain.connect(this.ctx.destination);
 
       // Apply current mute/volume using setValueAtTime for immediate effect
       if (this.masterGain && this.ctx)
-        this.masterGain.gain.setValueAtTime(this.muted ? 0 : this.volume, this.ctx.currentTime);
+        this.masterGain.gain.setValueAtTime(
+          this.muted ? 0 : this.volume,
+          this.ctx.currentTime
+        );
 
       // Preload assets (non‑blocking for small files)
       await Promise.all(
@@ -131,7 +135,10 @@ class AudioKit {
       try {
         this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
       } catch {}
-      this.masterGain.gain.setValueAtTime(m ? 0 : this.volume, this.ctx.currentTime);
+      this.masterGain.gain.setValueAtTime(
+        m ? 0 : this.volume,
+        this.ctx.currentTime
+      );
     }
   }
 
@@ -144,7 +151,10 @@ class AudioKit {
     } catch {}
     // Keep mute behavior: gain stays 0 while muted,
     // but we still store the latest desired volume in this.volume.
-    this.masterGain.gain.setValueAtTime(this.muted ? 0 : vv, this.ctx.currentTime);
+    this.masterGain.gain.setValueAtTime(
+      this.muted ? 0 : vv,
+      this.ctx.currentTime
+    );
   }
 
   // Utility: simple synthesized whoosh if no asset
@@ -739,8 +749,6 @@ export default function GachaPage() {
     ensureConfettiInstance();
   }, []);
 
-  
-
   // 🎨 Theming tokens
   const parchmentBg =
     "bg-[radial-gradient(1400px_800px_at_50%_-10%,rgba(244,228,177,0.2),transparent),radial-gradient(900px_520px_at_30%_120%,rgba(107,46,46,0.18),transparent)]";
@@ -761,7 +769,9 @@ export default function GachaPage() {
         @keyframes candleGlow { 0% { text-shadow: 0 0 10px rgba(212,175,55,0.45), 0 0 2px rgba(255,235,195,0.35); } 50% { text-shadow: 0 0 22px rgba(212,175,55,0.85), 0 0 6px rgba(255,235,195,0.55); } 100% { text-shadow: 0 0 10px rgba(212,175,55,0.45), 0 0 2px rgba(255,235,195,0.35); } }
         @keyframes runeShimmer { 0% { transform: translate(0,0) } 50% { transform: translate(0.3px,-0.2px) } 100% { transform: translate(0,0) } }
         .glitching { animation: runeShimmer 140ms infinite steps(2,end); }
-        .glow { animation: candleGlow 2.4s ease-in-out infinite; }
+  .glow { animation: candleGlow 2.4s ease-in-out infinite; }
+  /* stronger glow used during the glitch/flicker to make numbers super light */
+  .glow-strong { animation: candleGlow 2.4s ease-in-out infinite; text-shadow: 0 0 28px rgba(212,175,55,0.95), 0 0 8px rgba(255,235,195,0.85); }
         .seal-corners:before, .seal-corners:after { content: ""; position: absolute; width: 18px; height: 18px; background: radial-gradient(circle at 30% 30%, #8b2323, #5c1414 60%, #2d0a0a 100%); border-radius: 50%; box-shadow: 0 0 8px rgba(124,30,30,0.6); }
         .seal-corners:before { top: -10px; left: -10px; }
         .seal-corners:after  { bottom: -10px; right: -10px; }
@@ -897,7 +907,9 @@ export default function GachaPage() {
                         onChange={async (e) => {
                           const m = e.currentTarget.checked; // read BEFORE await
                           setMuted(m);
-                          try { localStorage.setItem("gacha_muted", m ? "1" : "0"); } catch {}
+                          try {
+                            localStorage.setItem("gacha_muted", m ? "1" : "0");
+                          } catch {}
                           await audioKit.ensureCtx();
                           audioKit.setMuted(m);
                         }}
@@ -913,7 +925,9 @@ export default function GachaPage() {
                       onChange={async (e) => {
                         const v = Number(e.currentTarget.value); // read BEFORE await
                         setVolume(v);
-                        try { localStorage.setItem("gacha_volume", String(v)); } catch {}
+                        try {
+                          localStorage.setItem("gacha_volume", String(v));
+                        } catch {}
                         await audioKit.ensureCtx();
                         audioKit.setVolume(v);
                       }}
@@ -1138,10 +1152,16 @@ export default function GachaPage() {
                   </motion.div>
 
                   {/* Prefix */}
-                  <div className={`mt-1 font-mono ${isGlitchingPrefix ? "text-amber-50" : "text-amber-300/95"}`}>
+                  <div
+                    className={`mt-1 font-mono ${
+                      isGlitchingPrefix
+                        ? "text-white font-semibold"
+                        : "text-amber-300/95"
+                    }`}
+                  >
                     <span
                       className={`text-xl md:text-3xl inline-block px-2 ${
-                        isGlitchingPrefix ? "glitching glow" : "glow"
+                        isGlitchingPrefix ? "glitching glow-strong" : "glow"
                       }`}
                     >
                       {(() => {
@@ -1163,8 +1183,12 @@ export default function GachaPage() {
                         stiffness: 300,
                         damping: 20,
                       }}
-                      className={`inline-block px-6 py-4 rounded-2xl font-mono text-4xl md:text-6xl tracking-[0.2em] select-none ${isGlitchingSuffix ? "text-amber-50" : "text-amber-100"} shadow-xl ${panelGlass} ${
-                        isGlitchingSuffix ? "glitching glow" : "glow"
+                      className={`inline-block px-6 py-4 rounded-2xl font-mono text-4xl md:text-6xl tracking-[0.2em] select-none ${
+                        isGlitchingSuffix
+                          ? "text-white font-semibold"
+                          : "text-amber-100"
+                      } shadow-xl ${panelGlass} ${
+                        isGlitchingSuffix ? "glitching glow-strong" : "glow"
                       }`}
                       style={{
                         borderWidth: 2,
