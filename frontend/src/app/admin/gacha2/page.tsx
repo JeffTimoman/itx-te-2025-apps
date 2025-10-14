@@ -728,6 +728,14 @@ export default function GachaPage() {
   }, [isMenuOpen]);
 
   useEffect(() => {
+    // Load persisted audio prefs
+    try {
+      const m = localStorage.getItem("gacha_muted");
+      const v = localStorage.getItem("gacha_volume");
+      if (m !== null) setMuted(m === "1");
+      if (v !== null) setVolume(Number(v));
+    } catch {}
+
     ensureConfettiInstance();
   }, []);
 
@@ -757,6 +765,16 @@ export default function GachaPage() {
         .seal-corners:before, .seal-corners:after { content: ""; position: absolute; width: 18px; height: 18px; background: radial-gradient(circle at 30% 30%, #8b2323, #5c1414 60%, #2d0a0a 100%); border-radius: 50%; box-shadow: 0 0 8px rgba(124,30,30,0.6); }
         .seal-corners:before { top: -10px; left: -10px; }
         .seal-corners:after  { bottom: -10px; right: -10px; }
+
+        /* Gacha audio control theming */
+        .gacha-checkbox { accent-color: #d4af37; }
+
+        .gacha-range { -webkit-appearance: none; appearance: none; background: transparent; }
+        .gacha-range:focus { outline: none; }
+        .gacha-range::-webkit-slider-runnable-track { height: 8px; background: rgba(212,175,55,0.14); border-radius: 999px; }
+        .gacha-range::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -4px; background: #d4af37; border-radius: 999px; box-shadow: 0 0 8px rgba(212,175,55,0.45); }
+        .gacha-range::-moz-range-track { height: 8px; background: rgba(212,175,55,0.14); border-radius: 999px; }
+        .gacha-range::-moz-range-thumb { width: 16px; height: 16px; background: #d4af37; border-radius: 999px; box-shadow: 0 0 6px rgba(212,175,55,0.35); border: none; }
       `}</style>
 
       {!isFullscreen && (
@@ -874,10 +892,12 @@ export default function GachaPage() {
                     <label className="flex items-center gap-2 text-xs">
                       <input
                         type="checkbox"
+                        className="gacha-checkbox"
                         checked={muted}
                         onChange={async (e) => {
                           const m = e.currentTarget.checked; // read BEFORE await
                           setMuted(m);
+                          try { localStorage.setItem("gacha_muted", m ? "1" : "0"); } catch {}
                           await audioKit.ensureCtx();
                           audioKit.setMuted(m);
                         }}
@@ -893,13 +913,14 @@ export default function GachaPage() {
                       onChange={async (e) => {
                         const v = Number(e.currentTarget.value); // read BEFORE await
                         setVolume(v);
+                        try { localStorage.setItem("gacha_volume", String(v)); } catch {}
                         await audioKit.ensureCtx();
                         audioKit.setVolume(v);
                       }}
                       onPointerDown={() => {
                         void audioKit.ensureCtx();
                       }}
-                      className="flex-1"
+                      className="gacha-range flex-1"
                       aria-label="Volume"
                     />
                     <span className="text-xs tabular-nums w-8 text-right">
