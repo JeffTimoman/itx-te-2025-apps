@@ -921,6 +921,11 @@ export default function GachaPageMultiple() {
         .gacha-range::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -4px; background: #d4af37; border-radius: 999px; box-shadow: 0 0 8px rgba(212,175,55,0.45); }
         .gacha-range::-moz-range-track { height: 8px; background: rgba(212,175,55,0.14); border-radius: 999px; }
         .gacha-range::-moz-range-thumb { width: 16px; height: 16px; background: #d4af37; border-radius: 999px; box-shadow: 0 0 6px rgba(212,175,55,0.35); border: none; }
+        /* themed select to avoid native white background on interaction */
+        .gacha-select { -webkit-appearance: none; appearance: none; background: rgba(20,12,9,0.28); color: #f4e4b1; border: 1px solid rgba(124,30,30,0.28); padding: 6px 10px; }
+        .gacha-select:focus { outline: none; box-shadow: 0 0 0 4px rgba(212,175,55,0.08); border-color: rgba(212,175,55,0.6); }
+        .gacha-select option { background: rgba(12,8,6,0.95); color: #f4e4b1; }
+        .gacha-select::-ms-expand { display: none; }
       `}</style>
 
       {!isFullscreen && (
@@ -1120,7 +1125,7 @@ export default function GachaPageMultiple() {
                                 return copy;
                               });
                             }}
-                            className="bg-amber-950/10 px-2 py-1 rounded text-xs"
+                            className="gacha-select text-xs"
                           >
                             {gifts.map((g) => (
                               <option key={g.id} value={g.id} disabled={Math.max(0, (g.quantity ?? 0) - (g.awarded ?? 0)) <= 0}>
