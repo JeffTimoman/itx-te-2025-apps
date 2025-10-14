@@ -136,13 +136,15 @@ class AudioKit {
   }
 
   setVolume(v: number) {
-    this.volume = Math.max(0, Math.min(1, v));
-    if (!this.muted && this.masterGain && this.ctx) {
-      try {
-        this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
-      } catch {}
-      this.masterGain.gain.setValueAtTime(this.volume, this.ctx.currentTime);
-    }
+    const vv = Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0;
+    this.volume = vv;
+    if (!this.masterGain || !this.ctx) return;
+    try {
+      this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
+    } catch {}
+    // Keep mute behavior: gain stays 0 while muted,
+    // but we still store the latest desired volume in this.volume.
+    this.masterGain.gain.setValueAtTime(this.muted ? 0 : vv, this.ctx.currentTime);
   }
 
   // Utility: simple synthesized whoosh if no asset
@@ -874,9 +876,9 @@ export default function GachaPage() {
                         type="checkbox"
                         checked={muted}
                         onChange={async (e) => {
-                          await audioKit.ensureCtx();
-                          const m = e.target.checked;
+                          const m = e.currentTarget.checked; // read BEFORE await
                           setMuted(m);
+                          await audioKit.ensureCtx();
                           audioKit.setMuted(m);
                         }}
                       />
@@ -889,10 +891,13 @@ export default function GachaPage() {
                       step={0.01}
                       value={volume}
                       onChange={async (e) => {
-                        await audioKit.ensureCtx();
-                        const v = Number(e.target.value);
+                        const v = Number(e.currentTarget.value); // read BEFORE await
                         setVolume(v);
+                        await audioKit.ensureCtx();
                         audioKit.setVolume(v);
+                      }}
+                      onPointerDown={() => {
+                        void audioKit.ensureCtx();
                       }}
                       className="flex-1"
                       aria-label="Volume"
