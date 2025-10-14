@@ -921,9 +921,23 @@ export default function GachaPageMultiple() {
         .gacha-range::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -4px; background: #d4af37; border-radius: 999px; box-shadow: 0 0 8px rgba(212,175,55,0.45); }
         .gacha-range::-moz-range-track { height: 8px; background: rgba(212,175,55,0.14); border-radius: 999px; }
         .gacha-range::-moz-range-thumb { width: 16px; height: 16px; background: #d4af37; border-radius: 999px; box-shadow: 0 0 6px rgba(212,175,55,0.35); border: none; }
-        /* themed select to avoid native white background on interaction */
-        .gacha-select { -webkit-appearance: none; appearance: none; background: rgba(20,12,9,0.28); color: #f4e4b1; border: 1px solid rgba(124,30,30,0.28); padding: 6px 10px; }
-        .gacha-select:focus { outline: none; box-shadow: 0 0 0 4px rgba(212,175,55,0.08); border-color: rgba(212,175,55,0.6); }
+        /* themed select to avoid native white background on interaction and match amber parchment theme */
+        .gacha-select {
+          -webkit-appearance: none;
+          appearance: none;
+          background-color: rgba(20,12,9,0.28);
+          color: #f4e4b1;
+          border: 1px solid rgba(124,30,30,0.28);
+          padding: 8px 40px 8px 12px;
+          border-radius: 10px;
+          background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23d4af37'><path d='M5.5 7.5l4.5 4.5 4.5-4.5' stroke='%23d4af37' stroke-width='0' fill='%23d4af37' /></svg>");
+          background-repeat: no-repeat;
+          background-position: right 10px center;
+          background-size: 16px;
+          font-size: 13px;
+        }
+        .gacha-select:hover { border-color: rgba(212,175,55,0.18); }
+        .gacha-select:focus { outline: none; box-shadow: 0 0 0 6px rgba(212,175,55,0.06); border-color: rgba(212,175,55,0.6); }
         .gacha-select option { background: rgba(12,8,6,0.95); color: #f4e4b1; }
         .gacha-select::-ms-expand { display: none; }
       `}</style>
