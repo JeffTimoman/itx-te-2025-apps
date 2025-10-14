@@ -348,7 +348,8 @@ export default function GachaPageMultiple() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [, setRevealDone] = useState(false);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [showPreviewName, setShowPreviewName] = useState(false);
+  // per-slot preview name visibility
+  const [showPreviewNameArr, setShowPreviewNameArr] = useState<boolean[]>(Array(MAX_SLOTS).fill(false));
 
   // audio controls
   const [muted, setMuted] = useState(false);
@@ -536,7 +537,7 @@ export default function GachaPageMultiple() {
     setIsGlitchingSuffixes(Array(MAX_SLOTS).fill(false));
     setPrefixDisplays(Array(MAX_SLOTS).fill("CCCC2025"));
     setSuffixDisplays(Array(MAX_SLOTS).fill("**********"));
-    setShowPreviewName(false);
+    setShowPreviewNameArr(Array(MAX_SLOTS).fill(false));
     removeConfettiCanvas();
     audioKit.stopLoop("drumloop");
   }, []);
@@ -795,6 +796,8 @@ export default function GachaPageMultiple() {
         for (let i = 0; i < slots; i++) copy[i] = picked[i];
         return copy;
       });
+      // hide all names by default for the new previews
+      setShowPreviewNameArr(Array(MAX_SLOTS).fill(false));
 
       const nextStage = spectacular ? 'reveal' : 'refresh-reveal';
       setStage(nextStage);
@@ -1179,8 +1182,8 @@ export default function GachaPageMultiple() {
                               <span className="text-amber-200/80">Slot {i + 1} Name:</span>
                             </div>
                             <div className="flex items-center gap-2">
-                              <span className="font-medium font-[Crimson Pro,serif]">{showPreviewName ? p?.name ?? 'Hidden' : 'Hidden'}</span>
-                              <button onClick={() => setShowPreviewName((v) => !v)} className="px-2 py-0.5 text-xs rounded border border-amber-900/40 bg-amber-950/20 hover:bg-amber-950/30">{showPreviewName ? 'Hide' : 'Show'}</button>
+                              <span className="font-medium font-[Crimson Pro,serif]">{showPreviewNameArr[i] ? (p?.name ?? '') : ''}</span>
+                              <button onClick={() => setShowPreviewNameArr((arr) => { const copy = [...arr]; copy[i] = !copy[i]; return copy; })} className="px-2 py-0.5 text-xs rounded border border-amber-900/40 bg-amber-950/20 hover:bg-amber-950/30">{showPreviewNameArr[i] ? 'Hide' : 'Show'}</button>
                             </div>
                           </div>
                           <div className="font-mono text-[13px] break-words">
@@ -1275,7 +1278,7 @@ export default function GachaPageMultiple() {
                               {suffix || '**********'}
                             </motion.div>
                           </div>
-                          <div className="mt-2 text-xs text-amber-200/80">{p ? (showPreviewName ? p.name : 'Hidden') : 'No preview'}</div>
+                          <div className="mt-2 text-xs text-amber-200/80">{p ? (showPreviewNameArr[i] ? p.name : '') : 'No preview'}</div>
                         </div>
                       );
                     })}
