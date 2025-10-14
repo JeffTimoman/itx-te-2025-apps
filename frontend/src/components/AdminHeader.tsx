@@ -123,13 +123,13 @@ export default function AdminHeader({
                   >
                     Gacha
                   </Link>
-                  <Link
+                  {/* <Link
                     href="/admin/gacha2"
                     onClick={() => setOpen(false)}
                     className="px-3 py-2 text-sm hover:bg-white/10"
                   >
                     Gacha 2 - Harry Potter Ver
-                  </Link>
+                  </Link> */}
                   <Link
                     href="/admin/assign_gift"
                     onClick={() => setOpen(false)}
