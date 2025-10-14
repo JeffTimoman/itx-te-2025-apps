@@ -1138,7 +1138,7 @@ export default function GachaPage() {
                   </motion.div>
 
                   {/* Prefix */}
-                  <div className="mt-1 font-mono text-amber-300/95">
+                  <div className={`mt-1 font-mono ${isGlitchingPrefix ? "text-amber-50" : "text-amber-300/95"}`}>
                     <span
                       className={`text-xl md:text-3xl inline-block px-2 ${
                         isGlitchingPrefix ? "glitching glow" : "glow"
@@ -1163,7 +1163,7 @@ export default function GachaPage() {
                         stiffness: 300,
                         damping: 20,
                       }}
-                      className={`inline-block px-6 py-4 rounded-2xl font-mono text-4xl md:text-6xl tracking-[0.2em] select-none text-amber-50 shadow-xl ${panelGlass} ${
+                      className={`inline-block px-6 py-4 rounded-2xl font-mono text-4xl md:text-6xl tracking-[0.2em] select-none ${isGlitchingSuffix ? "text-amber-50" : "text-amber-100"} shadow-xl ${panelGlass} ${
                         isGlitchingSuffix ? "glitching glow" : "glow"
                       }`}
                       style={{
