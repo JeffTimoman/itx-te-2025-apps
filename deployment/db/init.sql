@@ -62,3 +62,16 @@ CREATE TABLE IF NOT EXISTS email_logs(
   success CHAR(1) NOT NULL DEFAULT 'N',
   error TEXT NULL
 );
+
+-- Admin users table: stores users who can log into the /admin UI and admin API.
+-- Passwords are stored as a bcrypt hash in `password_hash`.
+-- Note: create users manually (no registration endpoint). Example script is provided in the backend repo to create a user with a hashed password.
+CREATE TABLE IF NOT EXISTS users(
+  id SERIAL PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE,
+  email TEXT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  name TEXT NULL,
+  role TEXT NOT NULL DEFAULT 'admin',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

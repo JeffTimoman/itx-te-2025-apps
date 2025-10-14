@@ -10,7 +10,7 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.3'
+          cpus: '0.25'
           memory: 512M
   postgres:
     image: postgres:15-alpine
@@ -27,8 +27,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '0.2'
-          memory: 1024M
+          cpus: '0.15'
+          memory: 768M
   backend:
     build:
       context: ..
@@ -47,6 +47,10 @@ services:
       - SMTP_USER=
       - SMTP_PASS=
       - SMTP_FROM=no-reply@te-itx-2025.site
+      - SESSION_NAME=itx.sid
+      - SESSION_SECRET=0a8f6c9b3e2d7f1e4c5a9b8f2d3c1e7f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4
+      - JWT_SECRET=e14c0768409a339e0bbc407d1c568130
+      - ADMIN_ALLOWED_ROLES=admin
     ports:
       - "5000:5000"
     depends_on:
@@ -56,8 +60,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.2'
-          memory: 3072M
+          cpus: '1.3'
+          memory: 4096M
   frontend:
     build:
       context: ..
@@ -69,6 +73,11 @@ services:
       - "8080:80"
     environment:
       - NEXT_PUBLIC_BACKEND_URL=http://te-itx-2025.site
+      - NEXT_PUBLIC_SFX_DRUMLOOP=http://te-itx-2025.site/drum-roll.mp3
+      - NEXT_PUBLIC_SFX_WHOOSH=http://te-itx-2025.site/whoosh.mp3
+      - NEXT_PUBLIC_SFX_TICK=http://te-itx-2025.site/clock-ticking.mp3
+      - NEXT_PUBLIC_SFX_CHIME=http://te-itx-2025.site/victory-chime.mp3
+      - NEXT_PUBLIC_SFX_FANFARE=http://te-itx-2025.site/fanfare.mp3
     depends_on:
       - backend
     restart: unless-stopped
@@ -97,6 +106,11 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 256M
 volumes:
   redis-data:
   postgres-data:

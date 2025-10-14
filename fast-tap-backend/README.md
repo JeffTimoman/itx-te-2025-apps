@@ -137,6 +137,11 @@ The backend is ready to run immediately without Redis:
 - `GAME_DURATION` - Game duration in milliseconds (default: 30000)
 - `MAX_PLAYERS_PER_ROOM` - Maximum players per room (default: 10)
 
+### Authentication (JWT)
+
+- `JWT_SECRET` - Secret used to sign JWTs for admin auth (recommended to set in production).
+- `JWT_EXPIRES_IN` - Token expiry (e.g. '24h', '1d', '3600s'). Defaults to 24h.
+
 ## Redis Setup
 
 ### Windows (using Chocolatey)

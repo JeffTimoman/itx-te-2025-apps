@@ -7,10 +7,10 @@ export type Gift = {
   created_at?: string | null;
 };
 
-const BASE = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+import authFetch from './client';
 
 async function req(path: string, opts: RequestInit = {}) {
-  const res = await fetch(`${BASE}${path}`, opts);
+  const res = await authFetch(path, opts);
   if (!res.ok) throw await res.json();
   return res.json();
 }

@@ -2,7 +2,10 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 const redis = require('redis');
+const log = require('./src/log');
 require('dotenv').config();
 
 const app = express();
@@ -26,7 +29,7 @@ async function tryInitPgPool(retries = 10, delayMs = 2000) {
       const p = await initPgPool();
       if (p) {
         pgPool = p;
-        console.log('Postgres pool initialized');
+        log.info('Postgres pool initialized');
         return true;
       }
       console.warn(`Postgres pool test failed (attempt ${i + 1}/${retries})`);
@@ -45,20 +48,20 @@ async function tryInitPgPool(retries = 10, delayMs = 2000) {
   try {
     const ok = await tryInitPgPool(10, 2000);
     if (!ok) {
-      console.warn('Initial Postgres init attempts failed; will retry in background every 30s');
+      log.warn('Initial Postgres init attempts failed; will retry in background every 30s');
       const interval = setInterval(async () => {
         if (!pgPool) {
           try {
             const p = await initPgPool();
             if (p) {
               pgPool = p;
-              console.log('Postgres pool initialized on background retry');
+              log.info('Postgres pool initialized on background retry');
               clearInterval(interval);
             } else {
-              console.warn('Background retry: Postgres still not available');
+              log.warn('Background retry: Postgres still not available');
             }
           } catch (e) {
-            console.warn('Background retry error:', e && e.message);
+            log.warn('Background retry error:', e && e.message);
           }
         } else {
           clearInterval(interval);
@@ -66,7 +69,7 @@ async function tryInitPgPool(retries = 10, delayMs = 2000) {
       }, 30000);
     }
   } catch (err) {
-    console.warn('Postgres init failed (outer):', err && err.message);
+    log.warn('Postgres init failed (outer):', err && err.message);
     pgPool = null;
   }
 })();
@@ -85,11 +88,11 @@ if (enableRedis) {
 
   // Connect to Redis
   redisClient.on('error', (err) => {
-    console.error('Redis Client Error:', err);
+    log.error('Redis Client Error:', err);
   });
 
   redisClient.on('connect', () => {
-    console.log('Connected to Redis');
+    log.info('Connected to Redis');
   });
 
   // Initialize Redis connection
@@ -97,14 +100,14 @@ if (enableRedis) {
     try {
       await redisClient.connect();
     } catch (error) {
-      console.error('Failed to connect to Redis:', error);
+      log.error('Failed to connect to Redis:', error);
       // If connect fails, disable redis usage to fall back to in-memory
       try { await redisClient.quit(); } catch (e) {}
       redisClient = null;
     }
   })();
 } else {
-  console.log('Redis disabled (ENABLE_REDIS!=true). Using in-memory storage fallback.');
+    log.info('Redis disabled (ENABLE_REDIS!=true). Using in-memory storage fallback.');
 }
 
 // CORS configuration
@@ -116,6 +119,43 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(express.json());
+
+// Using stateless JWTs for admin authentication.
+// JWT secret: prefer JWT_SECRET, fall back to SESSION_SECRET for backward compatibility.
+const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'dev-jwt-secret-change-me';
+// Token TTL
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
+
+// Simple middleware to require an authenticated admin user for /api/admin routes
+// Roles allowed to access admin routes (comma-separated env var, default 'admin')
+const ADMIN_ALLOWED_ROLES = (process.env.ADMIN_ALLOWED_ROLES || 'admin').split(',').map((r) => String(r).trim()).filter(Boolean);
+
+// JWT verification middleware for admin routes
+function verifyJwt(token) {
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (e) {
+    return null;
+  }
+}
+
+function requireAdmin(req, res, next) {
+  try {
+    const auth = String(req.headers.authorization || '').trim();
+    if (!auth || !auth.toLowerCase().startsWith('bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+    const token = auth.substring(7).trim();
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+    const payload = verifyJwt(token);
+    if (!payload || !payload.user || !payload.user.id) return res.status(401).json({ error: 'Unauthorized' });
+    const role = String(payload.user.role || '').trim();
+    if (!ADMIN_ALLOWED_ROLES.includes(role)) return res.status(403).json({ error: 'Forbidden' });
+    // attach user to request for handlers
+    req.user = payload.user;
+    return next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+}
 
 // Socket.IO setup with CORS
 const io = socketIo(server, {
@@ -167,6 +207,52 @@ app.get('/api/rooms', async (req, res) => {
 
 // Registrants admin endpoints
 // Note: these endpoints do not implement authentication. Run in a trusted network or add auth.
+// Authentication endpoints
+app.post('/api/admin/login', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) return res.status(400).json({ error: 'username and password required' });
+    const result = await pgPool.query('SELECT id, username, password_hash, email, name, role FROM users WHERE username = $1', [String(username).trim()]);
+    if (result.rows.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
+    const user = result.rows[0];
+    const ok = await bcrypt.compare(String(password), String(user.password_hash));
+    if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+    const payload = { user: { id: user.id, username: user.username, email: user.email, name: user.name, role: user.role } };
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+    return res.json({ ok: true, token, user: payload.user });
+  } catch (err) {
+    console.error('Login error', err && err.message);
+    return res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// With JWTs logout is a client-side operation (drop the token). For convenience we still expose an endpoint
+// that a client can call to indicate logout, but it doesn't need to invalidate server state unless using a blacklist.
+app.post('/api/admin/logout', (req, res) => {
+  return res.json({ ok: true });
+});
+
+// Public session check for frontend auth checks (placed before admin protection)
+// Public session check: if Authorization Bearer token is present and valid, return user; otherwise null.
+app.get('/api/admin/session', (req, res) => {
+  try {
+    const auth = String(req.headers.authorization || '').trim();
+    if (!auth || !auth.toLowerCase().startsWith('bearer ')) return res.json({ user: null });
+    const token = auth.substring(7).trim();
+    const payload = verifyJwt(token);
+    if (!payload || !payload.user) return res.json({ user: null });
+    return res.json({ user: payload.user });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to read session' });
+  }
+});
+
+// Protect admin routes
+app.use('/api/admin', requireAdmin);
+
+// Registrants admin endpoints
+// Note: these endpoints require authentication. Run in a trusted network or add auth.
 app.get('/api/admin/registrants', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   try {
@@ -322,6 +408,9 @@ app.post('/api/registrations/verify', async (req, res) => {
           await client.query('ROLLBACK');
           return res.status(400).json({ error: 'Registrant already verified' });
         }
+        // Persist the selected registrant_id to the verification_codes row so the code
+        // becomes bound to that registrant for auditing and future checks.
+        await client.query('UPDATE verification_codes SET registrant_id = $1 WHERE id = $2', [registrant_id, row.id]);
         targetRegistrantId = registrant_id;
       }
 
@@ -455,7 +544,7 @@ process.on('SIGTERM', async () => {
   try {
     if (redisClient && redisClient.isOpen) await redisClient.quit();
   } catch (err) {
-    console.warn('Error quitting Redis client on SIGTERM:', err && err.message);
+      log.warn('Error quitting Redis client on SIGTERM:', err && err.message);
   }
   server.close(() => {
     console.log('Server closed.');
@@ -468,7 +557,7 @@ process.on('SIGINT', async () => {
   try {
     if (redisClient && redisClient.isOpen) await redisClient.quit();
   } catch (err) {
-    console.warn('Error quitting Redis client on SIGINT:', err && err.message);
+      log.warn('Error quitting Redis client on SIGINT:', err && err.message);
   }
   server.close(() => {
     console.log('Server closed.');

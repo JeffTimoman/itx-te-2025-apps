@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require("uuid");
+const log = require('./log');
 
 class GameManager {
   constructor(redisClient) {
@@ -20,7 +21,7 @@ class GameManager {
       const data = await this._get(`${this.GAME_PREFIX}${roomId}`);
       return data ? JSON.parse(data) : null;
     } catch (err) {
-      console.error("Error getting game state:", err);
+      log.error("Error getting game state:", err);
       return null;
     }
   }
@@ -109,7 +110,7 @@ class GameManager {
 
       return { success: true, roomId, room };
     } catch (error) {
-      console.error("Error creating room:", error);
+      log.error("Error creating room:", error);
       return { success: false, message: "Failed to create room" };
     }
   }
@@ -161,7 +162,7 @@ class GameManager {
 
       return { success: true, room };
     } catch (error) {
-      console.error("Error joining room:", error);
+      log.error("Error joining room:", error);
       return { success: false, message: "Failed to join room" };
     }
   }
@@ -222,7 +223,7 @@ class GameManager {
 
       return { success: true, gameState };
     } catch (error) {
-      console.error("Error starting game:", error);
+      log.error("Error starting game:", error);
       return { success: false, message: "Failed to start game" };
     }
   }
@@ -290,7 +291,7 @@ class GameManager {
         firstTapRecorded: room.taps.length === 1,
       };
     } catch (error) {
-      console.error("Error registering tap:", error);
+      log.error("Error registering tap:", error);
       return { success: false, message: "Failed to register tap" };
     }
   }
@@ -345,7 +346,7 @@ class GameManager {
       const players = Object.values(room.players).map(p => ({ playerId: p.id, playerName: p.name }));
       return { success: true, results: players, winner };
     } catch (error) {
-      console.error("Error ending game:", error);
+      log.error("Error ending game:", error);
       return { success: false, message: "Failed to end game" };
     }
   }
@@ -385,7 +386,7 @@ class GameManager {
 
       return { success: true, room };
     } catch (error) {
-      console.error("Error leaving room:", error);
+      log.error("Error leaving room:", error);
       return { success: false, message: "Failed to leave room" };
     }
   }
@@ -401,7 +402,7 @@ class GameManager {
       }
       return null;
     } catch (error) {
-      console.error("Error handling disconnect:", error);
+      log.error("Error handling disconnect:", error);
     }
   }
 
@@ -427,7 +428,7 @@ class GameManager {
 
       return rooms;
     } catch (error) {
-      console.error("Error getting all rooms:", error);
+      log.error("Error getting all rooms:", error);
       return [];
     }
   }
@@ -438,7 +439,7 @@ class GameManager {
       const roomData = await this._get(`${this.ROOM_PREFIX}${roomId}`);
       return roomData ? JSON.parse(roomData) : null;
     } catch (error) {
-      console.error("Error getting room:", error);
+      log.error("Error getting room:", error);
       return null;
     }
   }

@@ -21,6 +21,10 @@ type FetchErr = unknown | { error?: string; message?: string } | string;
 type SortKey = "id" | "name" | "bureau" | "code" | null;
 type SortDir = "asc" | "desc";
 
+import authFetch from "../../../lib/api/client";
+
+import AdminHeader from "../../../components/AdminHeader";
+
 export default function AssignGiftPage() {
   const [gifts, setGifts] = useState<Gift[]>([]);
   const [registrants, setRegistrants] = useState<Registrant[]>([]);
@@ -82,11 +86,11 @@ export default function AssignGiftPage() {
     setError(null);
     try {
       const [g, r] = await Promise.all([
-        fetch("/api/admin/gifts/available"),
-        fetch("/api/admin/registrants"),
-      ]);
-      if (g.ok) setGifts(await g.json());
-      if (r.ok) setRegistrants(await r.json());
+          authFetch("/api/admin/gifts/available"),
+          authFetch("/api/admin/registrants"),
+        ]);
+        if (g.ok) setGifts(await g.json());
+        if (r.ok) setRegistrants(await r.json());
     } catch (e) {
       setError(toMsg(e));
     } finally {
@@ -216,7 +220,7 @@ export default function AssignGiftPage() {
 
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/gifts/${selectedGift}/assign`, {
+      const res = await authFetch(`/api/admin/gifts/${selectedGift}/assign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ registrant_id: selectedRegistrant }),
@@ -225,11 +229,11 @@ export default function AssignGiftPage() {
       if (!res.ok) throw body;
 
       setSuccess("Gift assigned ✔");
-      // refresh
-      const g = await fetch("/api/admin/gifts/available");
-      if (g.ok) setGifts(await g.json());
-      const r = await fetch("/api/admin/registrants");
-      if (r.ok) setRegistrants(await r.json());
+  // refresh
+  const g = await authFetch("/api/admin/gifts/available");
+  if (g.ok) setGifts(await g.json());
+  const r = await authFetch("/api/admin/registrants");
+  if (r.ok) setRegistrants(await r.json());
       setSelectedRegistrant(null);
     } catch (e) {
       setError(toMsg(e));
@@ -272,31 +276,21 @@ export default function AssignGiftPage() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100">
       {/* Header */}
-      <header className="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-white/5 border-b border-white/10">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-xl bg-white/10 grid place-content-center text-sm font-bold">
-              ITX
-            </div>
-            <h1 className="text-sm sm:text-base font-semibold">Assign Gift</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={load}
-              disabled={fetching}
-              className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15 disabled:opacity-50"
-            >
-              {fetching ? "Refreshing…" : "Refresh"}
-            </button>
-            <button
-              onClick={resetAll}
-              className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs"
-            >
-              Reset
-            </button>
-          </div>
-        </div>
-      </header>
+      <AdminHeader title="Assign Gift">
+        <button
+          onClick={load}
+          disabled={fetching}
+          className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15 disabled:opacity-50"
+        >
+          {fetching ? "Refreshing…" : "Refresh"}
+        </button>
+        <button
+          onClick={resetAll}
+          className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs"
+        >
+          Reset
+        </button>
+      </AdminHeader>
 
       {/* Main */}
       <main className="max-w-6xl mx-auto px-4 py-6 sm:py-8 grid lg:grid-cols-2 gap-6 items-start">
@@ -614,15 +608,6 @@ export default function AssignGiftPage() {
                                 </button>
                               )}
                             </div>
-                          </td>
-                          <td className="p-3 whitespace-nowrap">
-                            {selectedRegistrant === r.id ? (
-                              <span className="text-xs px-2 py-1 rounded bg-indigo-500/20 border border-indigo-400/40">
-                                Selected
-                              </span>
-                            ) : (
-                              <span className="text-xs opacity-60">—</span>
-                            )}
                           </td>
                         </tr>
                       ))
