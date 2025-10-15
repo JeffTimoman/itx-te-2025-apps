@@ -2080,20 +2080,22 @@ export default function GachaPageMain() {
                   {/* responsive grid: center single panel; for 3 winners keep middle centered on larger screens */}
                   <div className={(() => {
                     const base = "grid grid-cols-1 gap-6";
+                    // default to 2 columns on md and keep the grid simple
                     let cols = "md:grid-cols-2";
+                    // center grid cells when single
                     let center = "";
                     if (winnersCount === 1) {
-                      // single winner: center it
+                      // single winner: center the single cell
                       cols = "";
                       center = "place-items-center";
                     } else if (winnersCount === 2) {
                       cols = "md:grid-cols-2";
                     } else if (winnersCount === 3) {
-                      // three winners: arrange into 3 columns on md+ so the middle sits centered
-                      cols = "md:grid-cols-3";
-                      center = "place-items-center";
+                      // three winners: use 2 columns on md so we can put 2 on top
+                      // and make the 3rd span both columns on its own row
+                      cols = "md:grid-cols-2";
                     } else {
-                      // 4 winners: use 2 columns (2x2)
+                      // 4 winners: 2x2
                       cols = "md:grid-cols-2";
                     }
                     return [base, cols, center].filter(Boolean).join(" ");
@@ -2106,8 +2108,10 @@ export default function GachaPageMain() {
                       const giftName = gifts.find((g) => g.id === gId)?.name || '';
                       const glitchPrefix = isGlitchingPrefixes[i];
                       const glitchSuffix = isGlitchingSuffixes[i];
-                      return (
-                        <div key={i} className={`p-4 ${panelGlass} rounded-2xl`}> 
+                      // build the inner panel so we can optionally wrap it for special layouts
+                      const panelWidthClass = winnersCount === 1 ? 'max-w-2xl w-auto' : 'max-w-xl w-full';
+                      const inner = (
+                        <div className={`p-4 ${panelGlass} rounded-2xl ${panelWidthClass} mx-auto`}>
                           <div className="text-sm text-amber-200/90">{giftName}</div>
                           <div className={`mt-1 font-mono ${glitchPrefix ? 'text-white font-semibold' : 'text-amber-300/95'}`}>
                             <span className={`text-xl md:text-3xl inline-block px-2 ${glitchPrefix ? 'glitching glow-strong' : 'glow'}`}>
@@ -2121,6 +2125,22 @@ export default function GachaPageMain() {
                             </motion.div>
                           </div>
                           <div className="mt-2 text-xs text-amber-200/80">{p ? (showPreviewNameArr[i] ? p.name : '') : 'No preview'}</div>
+                        </div>
+                      );
+
+                      // special-case for 3 winners: make the 3rd item span both columns and center it on its own row
+                      if (winnersCount === 3 && i === 2) {
+                        return (
+                          <div key={i} className="md:col-span-2 flex justify-center">
+                            {inner}
+                          </div>
+                        );
+                      }
+
+                      // default card
+                      return (
+                        <div key={i}>
+                          {inner}
                         </div>
                       );
                     })}
