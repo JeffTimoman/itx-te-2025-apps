@@ -28,8 +28,10 @@ CREATE TABLE IF NOT EXISTS gift_categories(
 );
 -- Insert the two initial gift categories (Grand / Great)
 INSERT INTO gift_categories (name) VALUES
-  ('Grand Gift'),
-  ('Great Gift');
+  ('Low Gift'),
+  ('Medium Gift'),
+  ('High Gift'),
+  ('Grand Prize');
 
 -- Gifts table used by admin CRUD
 CREATE TABLE IF NOT EXISTS gift(
