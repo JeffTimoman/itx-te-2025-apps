@@ -1672,6 +1672,98 @@ export default function GachaPageMain() {
     }
   }
 
+  // Refresh a single slot winner (preserves other slots). Ensures unique registrant
+  async function pickRandomSlot(spectacular: boolean, slot: number) {
+    const gid = selectedGiftsArr[slot];
+    if (!gid) return setError('Select a gift for this slot');
+    setError(null);
+    setLoading(true);
+    setStage('drawing');
+    setRevealDone(false);
+    setIsMenuOpen(false);
+
+    try {
+      // check eligible registrants
+      const regRes = await authFetch(`/api/admin/registrants`);
+      if (!regRes.ok) throw await regRes.json();
+      const regs = (await regRes.json()) as Array<{ id: number; name: string; gacha_code?: string | null; is_verified?: string | null; is_win?: string | null }>;
+      // exclude already-picked ids in other slots to keep uniqueness
+      const exclude = new Set<number>();
+      previews.forEach((p, idx) => { if (p && idx !== slot) exclude.add(p.id); });
+      const eligible = (regs || []).filter((r) => r.is_verified === 'Y' && r.is_win === 'N' && r.gacha_code && !exclude.has(r.id));
+      if ((eligible || []).length < 1) {
+        setError(`Not enough eligible registrants to refresh this slot`);
+        setStage('idle');
+        setLoading(false);
+        return;
+      }
+
+      // check gift availability
+      const giftObj = gifts.find((g) => g.id === gid);
+      const avail = giftObj ? Math.max(0, (giftObj.quantity ?? 0) - (giftObj.awarded ?? 0)) : 0;
+      if (avail <= 0) {
+        setError(`No remaining quantity for selected gift`);
+        setStage('idle');
+        setLoading(false);
+        return;
+      }
+
+      await audioKit.ensureCtx();
+      audioKit.setMuted(muted);
+      audioKit.setVolume(volume);
+      audioKit.startLoop('drumloop', { gain: spectacular ? 0.8 : 0.6 });
+      audioKit.play('whoosh');
+
+      // pick unique winner for this slot
+      const attempts = 10;
+      let found: PreviewWinner | null = null;
+      for (let a = 0; a < attempts; a++) {
+        const res = await authFetch(`/api/admin/gifts/${gid}/random-winner`, { method: 'POST' });
+        if (!res.ok) continue;
+        const data = await res.json() as PreviewWinner;
+        if (!data) continue;
+        if (!exclude.has(data.id)) { found = data; break; }
+      }
+      if (!found) {
+        setError('Failed to pick a unique winner for this slot');
+        setStage('idle');
+        setLoading(false);
+        audioKit.stopLoop('drumloop');
+        return;
+      }
+
+      // set preview for this slot only
+      setPreviews((p) => {
+        const copy = [...p];
+        copy[slot] = found;
+        return copy;
+      });
+      // hide name by default for this slot
+      setShowPreviewNameArr((arr) => { const c = [...arr]; c[slot] = false; return c; });
+
+      const { prefix, suffix } = splitCode(found.gacha_code || '');
+      setStage(spectacular ? 'reveal' : 'refresh-reveal');
+
+      // reveal only this slot
+      await new Promise<void>((resolve) => {
+        startRevealSequenceSlot(slot, prefix || '********', suffix || '0000000000', spectacular, () => {
+          audioKit.stopLoop('drumloop');
+          setRevealDone(true);
+          resolve();
+        });
+      });
+    } catch (e) {
+      setError(toMsg(e));
+      setStage('idle');
+      setIsGlitchingPrefixes(Array(MAX_SLOTS).fill(false));
+      setIsGlitchingSuffixes(Array(MAX_SLOTS).fill(false));
+      setRevealDone(true);
+      audioKit.stopLoop('drumloop');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function saveWinner() {
     const slots = winnersCount;
     const selection = selectedGiftsArr.slice(0, slots);
@@ -2026,6 +2118,14 @@ export default function GachaPageMain() {
                             <div className="flex items-center gap-2">
                               <span className="font-medium font-[Crimson Pro,serif]">{showPreviewNameArr[i] ? (p?.name ?? '') : ''}</span>
                               <button onClick={() => setShowPreviewNameArr((arr) => { const copy = [...arr]; copy[i] = !copy[i]; return copy; })} className="px-2 py-0.5 text-xs rounded border border-amber-900/40 bg-amber-950/20 hover:bg-amber-950/30">{showPreviewNameArr[i] ? 'Hide' : 'Show'}</button>
+                              <button
+                                onClick={() => pickRandomSlot(false, i)}
+                                disabled={loading || !selectedGiftsArr[i]}
+                                className="px-2 py-0.5 text-xs rounded border border-amber-900/40 bg-amber-950/20 hover:bg-amber-950/30 disabled:opacity-60"
+                                title="Refresh this slot"
+                              >
+                                Refresh
+                              </button>
                             </div>
                           </div>
                           <div className="font-mono text-[13px] break-words">
