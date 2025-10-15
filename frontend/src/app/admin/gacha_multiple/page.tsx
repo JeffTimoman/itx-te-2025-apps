@@ -1266,9 +1266,9 @@ export default function GachaPageMultiple() {
                     } else if (winnersCount === 2) {
                       cols = "md:grid-cols-2";
                     } else if (winnersCount === 3) {
-                      // three winners: arrange into 3 columns on md+ so the middle sits centered
-                      cols = "md:grid-cols-3";
-                      center = "place-items-center";
+                      // three winners: use 2 columns (top row: 2 cards) and bottom row the 3rd spans both
+                      cols = "md:grid-cols-2";
+                      center = "";
                     } else {
                       // 4 winners: use 2 columns (2x2)
                       cols = "md:grid-cols-2";
@@ -1283,21 +1283,48 @@ export default function GachaPageMultiple() {
                       const giftName = gifts.find((g) => g.id === gId)?.name || '';
                       const glitchPrefix = isGlitchingPrefixes[i];
                       const glitchSuffix = isGlitchingSuffixes[i];
+                      const isThirdCentered = winnersCount === 3 && i === 2;
+
+                      if (isThirdCentered) {
+                        // make the third card span both columns and center it on its own row
+                        return (
+                          <div key={i} className="md:col-span-2 flex justify-center px-4">
+                            <div className={`${panelGlass} rounded-2xl w-full max-w-xl p-4`}>
+                              <div className="text-sm text-amber-200/90">{giftName}</div>
+                              <div className={`mt-1 font-mono ${glitchPrefix ? 'text-white font-semibold' : 'text-amber-300/95'}`}>
+                                <span className={`text-xl md:text-3xl inline-block px-2 ${glitchPrefix ? 'glitching glow-strong' : 'glow'}`}>
+                                  {prefix || '********'}
+                                </span>
+                                <span className="opacity-50">-</span>
+                              </div>
+                              <div className="mt-3">
+                                <motion.div key={i + '-' + suffix} initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }} className={`inline-block px-6 py-4 rounded-2xl font-mono text-3xl md:text-4xl tracking-[0.2em] select-none ${glitchSuffix ? 'text-white font-semibold' : 'text-amber-100'} shadow-xl ${glitchSuffix ? 'glitching glow-strong' : 'glow'}`} style={{ borderWidth: 2, borderColor: 'rgba(120, 53, 15, 0.45)' }}>
+                                  {suffix || '**********'}
+                                </motion.div>
+                              </div>
+                              <div className="mt-2 text-xs text-amber-200/80">{p ? (showPreviewNameArr[i] ? p.name : '') : 'No preview'}</div>
+                            </div>
+                          </div>
+                        );
+                      }
+
                       return (
-                        <div key={i} className={`p-4 ${panelGlass} rounded-2xl`}> 
-                          <div className="text-sm text-amber-200/90">{giftName}</div>
-                          <div className={`mt-1 font-mono ${glitchPrefix ? 'text-white font-semibold' : 'text-amber-300/95'}`}>
-                            <span className={`text-xl md:text-3xl inline-block px-2 ${glitchPrefix ? 'glitching glow-strong' : 'glow'}`}>
-                              {prefix || '********'}
-                            </span>
-                            <span className="opacity-50">-</span>
+                        <div key={i} className={`p-4`}> 
+                          <div className={`${panelGlass} rounded-2xl p-4`}>
+                            <div className="text-sm text-amber-200/90">{giftName}</div>
+                            <div className={`mt-1 font-mono ${glitchPrefix ? 'text-white font-semibold' : 'text-amber-300/95'}`}>
+                              <span className={`text-xl md:text-3xl inline-block px-2 ${glitchPrefix ? 'glitching glow-strong' : 'glow'}`}>
+                                {prefix || '********'}
+                              </span>
+                              <span className="opacity-50">-</span>
+                            </div>
+                            <div className="mt-3">
+                              <motion.div key={i + '-' + suffix} initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }} className={`inline-block px-6 py-4 rounded-2xl font-mono text-3xl md:text-4xl tracking-[0.2em] select-none ${glitchSuffix ? 'text-white font-semibold' : 'text-amber-100'} shadow-xl ${glitchSuffix ? 'glitching glow-strong' : 'glow'}`} style={{ borderWidth: 2, borderColor: 'rgba(120, 53, 15, 0.45)' }}>
+                                {suffix || '**********'}
+                              </motion.div>
+                            </div>
+                            <div className="mt-2 text-xs text-amber-200/80">{p ? (showPreviewNameArr[i] ? p.name : '') : 'No preview'}</div>
                           </div>
-                          <div className="mt-3">
-                            <motion.div key={i + '-' + suffix} initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }} className={`inline-block px-6 py-4 rounded-2xl font-mono text-3xl md:text-4xl tracking-[0.2em] select-none ${glitchSuffix ? 'text-white font-semibold' : 'text-amber-100'} shadow-xl ${panelGlass} ${glitchSuffix ? 'glitching glow-strong' : 'glow'}`} style={{ borderWidth: 2, borderColor: 'rgba(120, 53, 15, 0.45)' }}>
-                              {suffix || '**********'}
-                            </motion.div>
-                          </div>
-                          <div className="mt-2 text-xs text-amber-200/80">{p ? (showPreviewNameArr[i] ? p.name : '') : 'No preview'}</div>
                         </div>
                       );
                     })}
