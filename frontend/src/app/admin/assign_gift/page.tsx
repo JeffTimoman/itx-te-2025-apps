@@ -35,6 +35,7 @@ export default function AssignGiftPage() {
   );
 
   const [loading, setLoading] = useState(false);
+  const [useWinningChance, setUseWinningChance] = useState(false);
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -223,17 +224,17 @@ export default function AssignGiftPage() {
       const res = await authFetch(`/api/admin/gifts/${selectedGift}/assign`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ registrant_id: selectedRegistrant }),
+        body: JSON.stringify({ registrant_id: selectedRegistrant, useWinningChance }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw body;
 
       setSuccess("Gift assigned ✔");
-  // refresh
-  const g = await authFetch("/api/admin/gifts/available");
-  if (g.ok) setGifts(await g.json());
-  const r = await authFetch("/api/admin/registrants");
-  if (r.ok) setRegistrants(await r.json());
+      // refresh
+      const g = await authFetch("/api/admin/gifts/available");
+      if (g.ok) setGifts(await g.json());
+      const r = await authFetch("/api/admin/registrants");
+      if (r.ok) setRegistrants(await r.json());
       setSelectedRegistrant(null);
     } catch (e) {
       setError(toMsg(e));
@@ -647,6 +648,15 @@ export default function AssignGiftPage() {
             onSubmit={handleAssign}
             className="sticky bottom-0 mt-3 flex items-center justify-end gap-2 backdrop-blur bg-white/5 border border-white/10 rounded-xl px-3 py-2 pb-[env(safe-area-inset-bottom)]"
           >
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={useWinningChance}
+                onChange={e => setUseWinningChance(e.target.checked)}
+                className="accent-indigo-500"
+              />
+              Use winning chance (gacha)
+            </label>
             <button
               type="button"
               onClick={() => setSelectedRegistrant(null)}

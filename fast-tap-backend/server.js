@@ -791,7 +791,7 @@ app.get('/api/qr', async (req, res) => {
 app.post('/api/admin/gifts/:id/assign', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   const giftId = parseInt(req.params.id, 10);
-  const { registrant_id } = req.body || {};
+  const { registrant_id, useWinningChance } = req.body || {};
   if (Number.isNaN(giftId)) return res.status(400).json({ error: 'Invalid gift id' });
   if (!registrant_id) return res.status(400).json({ error: 'registrant_id is required' });
 
@@ -821,9 +821,14 @@ app.post('/api/admin/gifts/:id/assign', async (req, res) => {
     }
 
     // allow multiple assignments of the same gift to the same registrant (no unique constraint)
-
-    const insertSql = `INSERT INTO gift_winners (registrant_id, gift_id, is_assigned) VALUES ($1, $2, 'Y') RETURNING id, registrant_id, gift_id, date_awarded, is_assigned`;
-    const ir = await client.query(insertSql, [registrant_id, giftId]);
+    let isAssigned = 'Y';
+    if (useWinningChance) {
+      isAssigned = 'N';
+      // mark registrant as winner
+      await client.query('UPDATE registrants SET is_win = $1 WHERE id = $2', ['Y', registrant_id]);
+    }
+    const insertSql = `INSERT INTO gift_winners (registrant_id, gift_id, is_assigned) VALUES ($1, $2, $3) RETURNING id, registrant_id, gift_id, date_awarded, is_assigned`;
+    const ir = await client.query(insertSql, [registrant_id, giftId, isAssigned]);
     await client.query('COMMIT');
 
     return res.json(ir.rows[0]);
