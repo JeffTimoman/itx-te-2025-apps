@@ -128,8 +128,11 @@ async function sendVerificationEmail(getPgPool, registrantId) {
     const to = registrant.email;
   const subject = "By Owl Post: Your Verification & Food Voucher";
 
-    // Plain-text fallback (kept concise)
-    const voucherLine = voucher ? `Your food voucher code: ${voucher.code}` : `Your gacha code: ${registrant.gacha_code || '(not found)'}`;
+  // Plain-text fallback (kept concise)
+  // Show the registrant's gacha code in the visible text. The attached barcode (when present)
+  // will be generated from the food voucher code so scanners read the voucher while
+  // humans see the original gacha code in the email.
+  const voucherLine = `Your gacha code: ${registrant.gacha_code || '(not found)'}`;
     const text = [
       `Dear ${registrant.name}${registrant.bureau ? ` — ${registrant.bureau}` : ""},`,
       "",
@@ -246,7 +249,7 @@ async function sendVerificationEmail(getPgPool, registrantId) {
                           border:1px dashed rgba(124,30,30,0.35);
                           border-radius:10px;
                         "
-                      >${voucherEsc || codeEsc || "&mdash;"}</div>
+                      >${codeEsc || "&mdash;"}</div>
                     </td>
                   </tr>
                 </table>
