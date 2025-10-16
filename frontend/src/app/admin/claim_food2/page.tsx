@@ -106,9 +106,9 @@ export default function ClaimFoodScannerPage() {
   // Scanning loop using BarcodeDetector when available, otherwise sample canvas for QR/barcode library
   useEffect(() => {
     let interval: number | null = null;
-    let zxingReader: any = null;
-    let zxingBufferCanvas: HTMLCanvasElement | null = null;
-    let zxingBufferCtx: CanvasRenderingContext2D | null = null;
+  let jsqrLib: any = null;
+  let bufferCanvas: HTMLCanvasElement | null = null;
+  let bufferCtx: CanvasRenderingContext2D | null = null;
 
     async function loop() {
       const video = videoRef.current as HTMLVideoElement | null;
@@ -129,38 +129,29 @@ export default function ClaimFoodScannerPage() {
           console.warn('Barcode detect error', e);
         }
       } else {
-        // Fallback: use @zxing/library to decode frames from a canvas
+        // Fallback: use jsQR to decode QR codes from a hidden canvas
         try {
-          if (!zxingReader) {
-            const ZXing = await import(/* webpackChunkName: "zxing" */ '@zxing/library');
-            const BrowserMultiFormatReader = ZXing.BrowserMultiFormatReader || ZXing.BrowserQRCodeReader || ZXing.MultiFormatReader;
-            zxingReader = new BrowserMultiFormatReader();
+          if (!jsqrLib) {
+            jsqrLib = (await import('jsqr')).default || (await import('jsqr'));
           }
-          if (!zxingBufferCanvas) {
-            zxingBufferCanvas = document.createElement('canvas');
-            zxingBufferCtx = zxingBufferCanvas.getContext('2d');
+          if (!bufferCanvas) {
+            bufferCanvas = document.createElement('canvas');
+            bufferCtx = bufferCanvas.getContext('2d');
           }
-          // draw current video frame to hidden canvas
-          if (zxingBufferCtx && zxingBufferCanvas) {
+          if (bufferCtx && bufferCanvas) {
             const w = (video.videoWidth || 640);
             const h = (video.videoHeight || 480);
-            zxingBufferCanvas.width = w;
-            zxingBufferCanvas.height = h;
-            zxingBufferCtx.drawImage(video, 0, 0, w, h);
-            const luminanceSource = zxingReader['createLuminanceSource'] ? zxingReader.createLuminanceSource(zxingBufferCanvas) : null;
-            try {
-              // BrowserMultiFormatReader.decodeFromCanvas is available in the library
-              const result = await zxingReader.decodeFromCanvas(zxingBufferCanvas);
-              if (result && result.getText) {
-                onDetected(String(result.getText()));
-              }
-            } catch (zxErr) {
-              // no decode - expected frequently
+            bufferCanvas.width = w;
+            bufferCanvas.height = h;
+            bufferCtx.drawImage(video, 0, 0, w, h);
+            const imgData = bufferCtx.getImageData(0, 0, w, h);
+            const code = jsqrLib(imgData.data, w, h);
+            if (code && code.data) {
+              onDetected(String(code.data));
             }
           }
         } catch (err) {
-          // dynamic import or decode error
-          // console.warn('ZXing fallback error', err);
+          // silent fallback fail
         }
       }
     }
