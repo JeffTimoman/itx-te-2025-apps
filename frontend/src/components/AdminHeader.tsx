@@ -158,6 +158,27 @@ export default function AdminHeader({
                   >
                     Winners
                   </Link>
+                  <Link
+                    href="/admin/claim_food"
+                    onClick={() => setOpen(false)}
+                    className="px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    Claim Food
+                  </Link>
+                  <Link
+                    href="/admin/team"
+                    onClick={() => setOpen(false)}
+                    className="px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    Teams
+                  </Link>
+                  <Link
+                    href="/admin/assign_score"
+                    onClick={() => setOpen(false)}
+                    className="px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    Add Score
+                  </Link>
                 </nav>
               </div>
             )}
