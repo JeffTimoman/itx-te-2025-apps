@@ -1,5 +1,6 @@
 const nodemailer = require("nodemailer");
 const bwipjs = require("bwip-js");
+const QRCode = require('qrcode');
 const log = require("./log");
 
 // Simple HTML escape to prevent broken markup if names/bureau contain <>&
@@ -97,17 +98,25 @@ async function sendVerificationEmail(getPgPool, registrantId) {
       const barcodeText = voucher ? voucher.code : registrant.gacha_code || '';
       if (barcodeText) {
         try {
-          barcodePng = await bwipjs.toBuffer({
-            bcid: 'code128',
-            text: barcodeText,
-            scale: 3,
-            height: 10,
-            includetext: false,
-            backgroundcolor: 'FFFFFF',
-          });
+          // Use QR code generation for easier scanning on mobile devices.
+          // Produce a PNG buffer (square) sized suitably for email inline display.
+          barcodePng = await QRCode.toBuffer(String(barcodeText), { type: 'png', width: 240, margin: 1 });
         } catch (err) {
-          log.warn('Failed to generate barcode image for voucher/gacha:', err && err.message);
-          barcodePng = null;
+          log.warn('Failed to generate QR code image for voucher/gacha:', err && err.message);
+          // fallback: attempt linear barcode via bwip-js if QR fails
+          try {
+            barcodePng = await bwipjs.toBuffer({
+              bcid: 'code128',
+              text: barcodeText,
+              scale: 3,
+              height: 10,
+              includetext: false,
+              backgroundcolor: 'FFFFFF',
+            });
+          } catch (err2) {
+            log.warn('Failed to generate fallback barcode image:', err2 && err2.message);
+            barcodePng = null;
+          }
         }
       }
     } catch (err) {
@@ -257,12 +266,12 @@ async function sendVerificationEmail(getPgPool, registrantId) {
                 ${
                   hasBarcode
                     ? `
-                <!-- Barcode -->
+                <!-- QR Code -->
                 <div style="text-align:center;margin:8px 0 2px;">
-                  <img src="cid:vouchercodeimg" width="320" height="60" alt="Your voucher code in barcode form" style="display:inline-block;border:0;outline:none;text-decoration:none;" />
+                  <img src="cid:vouchercodeimg" width="240" height="240" alt="Your voucher code as QR code" style="display:inline-block;border:0;outline:none;text-decoration:none;" />
                 </div>
                 <div style="text-align:center;color:#6e5846;font-size:12px;margin-top:2px;">
-                  Present this voucher code (or the barcode) at the food claim desk to redeem your meal.
+                  Present this voucher code (or the QR code) at the food claim desk to redeem your meal.
                 </div>
                 `
                     : `
