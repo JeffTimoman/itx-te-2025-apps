@@ -47,8 +47,9 @@ export default function ClaimFoodScannerPage() {
   async function validateCode(code: string) {
     try {
       const res = await authFetch(`/api/admin/food-vouchers/${encodeURIComponent(code)}`);
-      if (!res.ok) return { ok: false, error: res.error || 'Invalid response' };
-      return { ok: true, voucher: res.voucher };
+      const data = await res.json().catch(() => null);
+      if (!res.ok) return { ok: false, error: (data && (data.error || data.message)) || `HTTP ${res.status}` };
+      return { ok: true, voucher: data && (data.voucher || data) };
     } catch (err) {
       return { ok: false, error: String(err) };
     }
@@ -58,8 +59,9 @@ export default function ClaimFoodScannerPage() {
   async function claimCode(code: string) {
     try {
       const res = await authFetch(`/api/admin/food-vouchers/${encodeURIComponent(code)}/claim`, { method: 'POST', body: JSON.stringify({}) });
-      if (!res.ok) return { ok: false, error: res.error || 'Claim failed' };
-      return { ok: true };
+      const data = await res.json().catch(() => null);
+      if (!res.ok) return { ok: false, error: (data && (data.error || data.message)) || `HTTP ${res.status}` };
+      return { ok: true, data };
     } catch (err) {
       return { ok: false, error: String(err) };
     }
@@ -139,6 +141,8 @@ export default function ClaimFoodScannerPage() {
     return () => stopCamera();
   }, [startCamera, stopCamera]);
 
+  const voucherClaimed = popup ? String((popup.voucher as Record<string, unknown>)['is_claimed'] || '') === 'Y' : false;
+
   return (
     <div className="p-4">
       <h2 className="text-xl font-bold">Food Voucher Scanner</h2>
@@ -162,16 +166,15 @@ export default function ClaimFoodScannerPage() {
           <div className="bg-white rounded-lg p-4 z-10 pointer-events-auto w-[90%] max-w-md">
             <h3 className="font-bold">Voucher detected</h3>
             <p className="mt-2">Code: <strong>{popup.code}</strong></p>
-            <p className="mt-1 text-sm text-gray-600">Status: {popup.voucher.is_claimed === 'Y' ? 'Already claimed' : 'Not claimed'}</p>
+            <p className="mt-1 text-sm text-gray-600">Status: {voucherClaimed ? 'Already claimed' : 'Not claimed'}</p>
             <div className="mt-3 flex gap-2 justify-end">
               <button className="px-3 py-2 border rounded" onClick={() => { setPopup(null); setLastDetected(''); setStatusMessage('Scanning...'); }}>Cancel</button>
-              {popup.voucher.is_claimed !== 'Y' && (
+              {!voucherClaimed && (
                 <button className="px-3 py-2 bg-amber-800 text-white rounded" onClick={onClaim}>Claim</button>
               )}
             </div>
           </div>
         </div>
       )}
-    </div>
   );
 }
