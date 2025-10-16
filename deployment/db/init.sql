@@ -33,6 +33,21 @@ INSERT INTO gift_categories (name) VALUES
   ('High Gift'),
   ('Grand Prize');
 
+-- Foods table for claimable foods
+CREATE TABLE IF NOT EXISTS food(
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Registrant food claims: one claim per registrant (unique constraint)
+CREATE TABLE IF NOT EXISTS registrant_claim_foods(
+  id SERIAL PRIMARY KEY,
+  registrant_id INTEGER REFERENCES registrants(id) ON DELETE CASCADE UNIQUE,
+  food_id INTEGER REFERENCES food(id) ON DELETE CASCADE,
+  claimed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Gifts table used by admin CRUD
 CREATE TABLE IF NOT EXISTS gift(
   id SERIAL PRIMARY KEY,

@@ -844,3 +844,93 @@ app.post('/api/admin/gifts/:id/assign', async (req, res) => {
 // Register resend endpoint and socket handlers from extracted modules
 registerResendEndpoint(app, () => pgPool);
 registerSocketHandlers(io, gameManager);
+
+// Foods CRUD for admin
+app.get('/api/admin/foods', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const result = await pgPool.query('SELECT id, name, created_at FROM food ORDER BY id ASC');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching foods', err && err.message);
+    res.status(500).json({ error: 'Failed to fetch foods' });
+  }
+});
+
+app.post('/api/admin/foods', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const { name } = req.body || {};
+    if (!name || String(name).trim().length === 0) return res.status(400).json({ error: 'Name required' });
+    const result = await pgPool.query('INSERT INTO food (name) VALUES ($1) RETURNING id, name, created_at', [String(name).trim()]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error creating food', err && err.message);
+    res.status(500).json({ error: 'Failed to create food' });
+  }
+});
+
+// List eligible registrants for a food (verified, not already claimed any food)
+app.get('/api/admin/foods/:id/eligible-registrants', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const foodId = parseInt(req.params.id, 10);
+    if (Number.isNaN(foodId)) return res.status(400).json({ error: 'Invalid food id' });
+    // registrants who are verified = 'Y' and not present in registrant_claim_foods
+    const sql = `SELECT id, name, gacha_code, email, bureau FROM registrants WHERE is_verified = $1 AND id NOT IN (SELECT registrant_id FROM registrant_claim_foods)`;
+    const result = await pgPool.query(sql, ['Y']);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching eligible registrants', err && err.message);
+    res.status(500).json({ error: 'Failed to fetch eligible registrants' });
+  }
+});
+
+// Claim a food for a registrant (transactional) — a registrant can only claim one food
+app.post('/api/admin/foods/:id/claim', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  const foodId = parseInt(req.params.id, 10);
+  const { registrant_id } = req.body || {};
+  if (Number.isNaN(foodId)) return res.status(400).json({ error: 'Invalid food id' });
+  if (!registrant_id) return res.status(400).json({ error: 'registrant_id is required' });
+
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+    // ensure registrant exists and is verified
+    const r = await client.query('SELECT id, is_verified FROM registrants WHERE id = $1 FOR UPDATE', [registrant_id]);
+    if (r.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Registrant not found' });
+    }
+    if (r.rows[0].is_verified !== 'Y') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Registrant is not verified' });
+    }
+
+    // ensure registrant hasn't already claimed any food
+    const ccheck = await client.query('SELECT id FROM registrant_claim_foods WHERE registrant_id = $1 FOR UPDATE', [registrant_id]);
+    if (ccheck.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Registrant has already claimed a food' });
+    }
+
+    // ensure food exists
+    const fRes = await client.query('SELECT id FROM food WHERE id = $1 FOR UPDATE', [foodId]);
+    if (fRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Food not found' });
+    }
+
+    const insertSql = 'INSERT INTO registrant_claim_foods (registrant_id, food_id) VALUES ($1, $2) RETURNING id, registrant_id, food_id, claimed_at';
+    const ir = await client.query(insertSql, [registrant_id, foodId]);
+    await client.query('COMMIT');
+    res.json(ir.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error claiming food', err && err.message);
+    res.status(500).json({ error: 'Failed to claim food' });
+  } finally {
+    client.release();
+  }
+});
