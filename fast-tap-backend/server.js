@@ -1045,3 +1045,68 @@ app.get('/api/admin/team-scores', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch team scores' });
   }
 });
+
+// Validate a food voucher by code (admin)
+app.get('/api/admin/food-vouchers/:code', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const code = String(req.params.code || '').trim().toUpperCase();
+    if (!code) return res.status(400).json({ error: 'Missing code' });
+    const sql = 'SELECT id, code, is_claimed, registrant_id, created_at FROM food_voucher WHERE UPPER(code) = $1 LIMIT 1';
+    const result = await pgPool.query(sql, [code]);
+    if (result.rows.length === 0) return res.status(404).json({ ok: false, error: 'Voucher not found' });
+    const v = result.rows[0];
+    return res.json({ ok: true, voucher: v });
+  } catch (err) {
+    console.error('Error validating voucher', err && err.message);
+    res.status(500).json({ error: 'Failed to validate voucher' });
+  }
+});
+
+// Claim a food voucher by code (transactional) — marks voucher is_claimed = 'Y' and inserts registrant_claim_foods if not exists
+app.post('/api/admin/food-vouchers/:code/claim', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  const code = String(req.params.code || '').trim().toUpperCase();
+  const { operator_note = null } = req.body || {};
+  if (!code) return res.status(400).json({ error: 'Missing code' });
+
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+    // Lock voucher row
+    const vres = await client.query('SELECT id, code, is_claimed, registrant_id FROM food_voucher WHERE UPPER(code) = $1 FOR UPDATE', [code]);
+    if (vres.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ ok: false, error: 'Voucher not found' });
+    }
+    const voucher = vres.rows[0];
+    if (voucher.is_claimed === 'Y') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ ok: false, error: 'Voucher already claimed' });
+    }
+
+    // If voucher has a registrant_id, ensure they have not already claimed via registrant_claim_foods
+    if (voucher.registrant_id) {
+      const rcRes = await client.query('SELECT id FROM registrant_claim_foods WHERE registrant_id = $1 FOR UPDATE', [voucher.registrant_id]);
+      if (rcRes.rows.length > 0) {
+        // Registrant already claimed a food — do not allow voucher redemption
+        await client.query('ROLLBACK');
+        return res.status(400).json({ ok: false, error: 'Registrant already claimed food' });
+      }
+      // Insert into registrant_claim_foods with a NULL food_id (operator can set later)
+      await client.query('INSERT INTO registrant_claim_foods (registrant_id, food_id) VALUES ($1, $2)', [voucher.registrant_id, null]);
+    }
+
+    // Mark voucher claimed
+    await client.query("UPDATE food_voucher SET is_claimed = 'Y' WHERE id = $1", [voucher.id]);
+
+    await client.query('COMMIT');
+    return res.json({ ok: true, claimed: true, voucher_id: voucher.id });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error claiming voucher', err && err.message);
+    return res.status(500).json({ ok: false, error: 'Failed to claim voucher' });
+  } finally {
+    client.release();
+  }
+});
