@@ -140,8 +140,30 @@ export default function ClaimFoodScannerPage() {
     startCamera();
     return () => stopCamera();
   }, [startCamera, stopCamera]);
+  useEffect(() => {
+    // no-op
+  }, []);
 
-  const voucherClaimed = popup ? String((popup.voucher as Record<string, unknown>)['is_claimed'] || '') === 'Y' : false;
+  function PopupComponent(): JSX.Element | null {
+    if (!popup) return null;
+    const voucherClaimedLocal = String((popup.voucher as Record<string, unknown>)['is_claimed'] || '') === 'Y';
+    return (
+      <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
+        <div className="bg-black/50 absolute inset-0"></div>
+        <div className="bg-white rounded-lg p-4 z-10 pointer-events-auto w-[90%] max-w-md">
+          <h3 className="font-bold">Voucher detected</h3>
+          <p className="mt-2">Code: <strong>{popup.code}</strong></p>
+          <p className="mt-1 text-sm text-gray-600">Status: {voucherClaimedLocal ? 'Already claimed' : 'Not claimed'}</p>
+          <div className="mt-3 flex gap-2 justify-end">
+            <button className="px-3 py-2 border rounded" onClick={() => { setPopup(null); setLastDetected(''); setStatusMessage('Scanning...'); }}>Cancel</button>
+            {!voucherClaimedLocal && (
+              <button className="px-3 py-2 bg-amber-800 text-white rounded" onClick={onClaim}>Claim</button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4">
@@ -158,23 +180,8 @@ export default function ClaimFoodScannerPage() {
           <button className="px-3 py-2 border rounded" onClick={() => { setLastDetected(''); setPopup(null); setStatusMessage('Scanning...'); }}>Reset</button>
         </div>
       </div>
-
-      {/* Popup */}
-      {popup && (
-        <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
-          <div className="bg-black/50 absolute inset-0"></div>
-          <div className="bg-white rounded-lg p-4 z-10 pointer-events-auto w-[90%] max-w-md">
-            <h3 className="font-bold">Voucher detected</h3>
-            <p className="mt-2">Code: <strong>{popup.code}</strong></p>
-            <p className="mt-1 text-sm text-gray-600">Status: {voucherClaimed ? 'Already claimed' : 'Not claimed'}</p>
-            <div className="mt-3 flex gap-2 justify-end">
-              <button className="px-3 py-2 border rounded" onClick={() => { setPopup(null); setLastDetected(''); setStatusMessage('Scanning...'); }}>Cancel</button>
-              {!voucherClaimed && (
-                <button className="px-3 py-2 bg-amber-800 text-white rounded" onClick={onClaim}>Claim</button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Render popup via inner component (keeps JSX parsing simpler) */}
+      <PopupComponent />
+    </div>
   );
 }
