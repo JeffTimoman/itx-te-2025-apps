@@ -106,6 +106,9 @@ export default function ClaimFoodScannerPage() {
   // Scanning loop using BarcodeDetector when available, otherwise sample canvas for QR/barcode library
   useEffect(() => {
     let interval: number | null = null;
+    let zxingReader: any = null;
+    let zxingBufferCanvas: HTMLCanvasElement | null = null;
+    let zxingBufferCtx: CanvasRenderingContext2D | null = null;
 
     async function loop() {
       const video = videoRef.current as HTMLVideoElement | null;
@@ -126,7 +129,39 @@ export default function ClaimFoodScannerPage() {
           console.warn('Barcode detect error', e);
         }
       } else {
-        // Fallback is left unimplemented: most modern mobile browsers support BarcodeDetector.
+        // Fallback: use @zxing/library to decode frames from a canvas
+        try {
+          if (!zxingReader) {
+            const ZXing = await import(/* webpackChunkName: "zxing" */ '@zxing/library');
+            const BrowserMultiFormatReader = ZXing.BrowserMultiFormatReader || ZXing.BrowserQRCodeReader || ZXing.MultiFormatReader;
+            zxingReader = new BrowserMultiFormatReader();
+          }
+          if (!zxingBufferCanvas) {
+            zxingBufferCanvas = document.createElement('canvas');
+            zxingBufferCtx = zxingBufferCanvas.getContext('2d');
+          }
+          // draw current video frame to hidden canvas
+          if (zxingBufferCtx && zxingBufferCanvas) {
+            const w = (video.videoWidth || 640);
+            const h = (video.videoHeight || 480);
+            zxingBufferCanvas.width = w;
+            zxingBufferCanvas.height = h;
+            zxingBufferCtx.drawImage(video, 0, 0, w, h);
+            const luminanceSource = zxingReader['createLuminanceSource'] ? zxingReader.createLuminanceSource(zxingBufferCanvas) : null;
+            try {
+              // BrowserMultiFormatReader.decodeFromCanvas is available in the library
+              const result = await zxingReader.decodeFromCanvas(zxingBufferCanvas);
+              if (result && result.getText) {
+                onDetected(String(result.getText()));
+              }
+            } catch (zxErr) {
+              // no decode - expected frequently
+            }
+          }
+        } catch (err) {
+          // dynamic import or decode error
+          // console.warn('ZXing fallback error', err);
+        }
       }
     }
 
