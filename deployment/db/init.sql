@@ -40,6 +40,22 @@ CREATE TABLE IF NOT EXISTS food(
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Teams table for grouping registrants or admin purposes
+CREATE TABLE IF NOT EXISTS teams(
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Team scores: records points awarded to teams per game
+CREATE TABLE IF NOT EXISTS team_scores(
+  id SERIAL PRIMARY KEY,
+  team_id INTEGER REFERENCES teams(id) ON DELETE CASCADE,
+  game_name TEXT NOT NULL,
+  point INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Registrant food claims: one claim per registrant (unique constraint)
 CREATE TABLE IF NOT EXISTS registrant_claim_foods(
   id SERIAL PRIMARY KEY,

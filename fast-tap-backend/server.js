@@ -934,3 +934,114 @@ app.post('/api/admin/foods/:id/claim', async (req, res) => {
     client.release();
   }
 });
+
+// Teams CRUD for admin
+app.get('/api/admin/teams', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const result = await pgPool.query('SELECT id, name, created_at FROM teams ORDER BY id ASC');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching teams', err && err.message);
+    res.status(500).json({ error: 'Failed to fetch teams' });
+  }
+});
+
+app.post('/api/admin/teams', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const { name } = req.body || {};
+    if (!name || String(name).trim().length === 0) return res.status(400).json({ error: 'Name required' });
+    const result = await pgPool.query('INSERT INTO teams (name) VALUES ($1) RETURNING id, name, created_at', [String(name).trim()]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error creating team', err && err.message);
+    res.status(500).json({ error: 'Failed to create team' });
+  }
+});
+
+app.patch('/api/admin/teams/:id', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { name } = req.body || {};
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+    if (!name || String(name).trim().length === 0) return res.status(400).json({ error: 'Name required' });
+    const result = await pgPool.query('UPDATE teams SET name = $1 WHERE id = $2 RETURNING id, name, created_at', [String(name).trim(), id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Team not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating team', err && err.message);
+    res.status(500).json({ error: 'Failed to update team' });
+  }
+});
+
+app.delete('/api/admin/teams/:id', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+    await pgPool.query('DELETE FROM teams WHERE id = $1', [id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Error deleting team', err && err.message);
+    res.status(500).json({ error: 'Failed to delete team' });
+  }
+});
+
+// Insert multiple team scores for a game (transactional)
+app.post('/api/admin/team-scores/bulk', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  const { game_name, scores } = req.body || {};
+  if (!game_name || !Array.isArray(scores) || scores.length === 0) return res.status(400).json({ error: 'game_name and scores required' });
+
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+    const insertSql = 'INSERT INTO team_scores (team_id, game_name, point) VALUES ($1, $2, $3) RETURNING id, team_id, game_name, point, created_at';
+    const inserted = [];
+    for (const s of scores) {
+      const tid = parseInt(s.team_id, 10);
+      const pt = parseInt(s.point, 10) || 0;
+      if (Number.isNaN(tid)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Invalid team_id in scores' });
+      }
+      const r = await client.query(insertSql, [tid, String(game_name), pt]);
+      inserted.push(r.rows[0]);
+    }
+    await client.query('COMMIT');
+    res.status(201).json({ inserted });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error inserting team scores', err && err.message);
+    res.status(500).json({ error: 'Failed to insert team scores' });
+  } finally {
+    client.release();
+  }
+});
+
+// Get total points per team (sum)
+app.get('/api/admin/team-scores/totals', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const sql = `SELECT t.id as team_id, t.name, COALESCE(SUM(ts.point),0) as total_points FROM teams t LEFT JOIN team_scores ts ON ts.team_id = t.id GROUP BY t.id, t.name ORDER BY t.id ASC`;
+    const result = await pgPool.query(sql);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching team totals', err && err.message);
+    res.status(500).json({ error: 'Failed to fetch team totals' });
+  }
+});
+
+// Optional: list raw team_scores
+app.get('/api/admin/team-scores', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const result = await pgPool.query('SELECT id, team_id, game_name, point, created_at FROM team_scores ORDER BY created_at DESC LIMIT 1000');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching team scores', err && err.message);
+    res.status(500).json({ error: 'Failed to fetch team scores' });
+  }
+});
