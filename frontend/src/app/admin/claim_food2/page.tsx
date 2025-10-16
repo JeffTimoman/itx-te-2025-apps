@@ -97,8 +97,9 @@ export default function ClaimFoodScannerPage() {
       return;
     }
     // Show small success message
-    setStatusMessage('Claim successful 🎉');
-    setPopup({ ...(popup as object), claimed: true });
+  setStatusMessage('Claim successful 🎉');
+  // use functional update to preserve type shape and avoid missing properties
+  setPopup(prev => prev ? { ...prev, claimed: true } : prev);
     setTimeout(() => { setPopup(null); setLastDetected(''); setStatusMessage('Scanning...'); }, 1200);
   }, [popup]);
 
@@ -144,7 +145,7 @@ export default function ClaimFoodScannerPage() {
     // no-op
   }, []);
 
-  function PopupComponent(): JSX.Element | null {
+  function PopupComponent(): React.ReactElement | null {
     if (!popup) return null;
     const voucherClaimedLocal = String((popup.voucher as Record<string, unknown>)['is_claimed'] || '') === 'Y';
     return (
