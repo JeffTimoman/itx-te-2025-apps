@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useCallback, useEffect, useState } from 'react';
 
 type Food = { id: number; name: string; created_at?: string };
