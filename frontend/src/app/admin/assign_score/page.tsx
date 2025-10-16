@@ -29,6 +29,7 @@ export default function AssignScorePage() {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [pageSize, setPageSize] = useState<number>(10);
   const [page, setPage] = useState<number>(1);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // ---- Helpers ----
   function toMessage(err: unknown) {
@@ -95,6 +96,7 @@ export default function AssignScorePage() {
       return next;
     });
   }
+
 
   async function saveScores() {
     if (!gameName.trim()) return setError("Game name required");
@@ -175,19 +177,68 @@ export default function AssignScorePage() {
       {/* Header */}
       <AdminHeader title="Assign Scores">
         <button
-          onClick={loadTeams}
-          disabled={loading}
-          className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15 disabled:opacity-50"
-        >
-          {loading ? "Refreshing…" : "Refresh Teams"}
-        </button>
-        <button
-          onClick={loadTotals}
+          onClick={() => setSidebarOpen((s) => !s)}
           className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15"
         >
-          Refresh Totals
+          {sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
         </button>
       </AdminHeader>
+
+      {/* Sidebar overlay/panel */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-40">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setSidebarOpen(false)}
+          />
+          <aside className="absolute right-0 top-0 h-full w-80 bg-slate-900/95 border-l border-white/10 p-4 text-slate-100">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Controls</h3>
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="px-2 py-1 text-sm rounded bg-white/5"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={loadTeams}
+                disabled={loading}
+                className="w-full text-left px-3 py-2 rounded bg-white/10 border border-white/10"
+              >
+                {loading ? 'Refreshing teams…' : 'Refresh Teams'}
+              </button>
+
+              <button
+                onClick={loadTotals}
+                className="w-full text-left px-3 py-2 rounded bg-white/10 border border-white/10"
+              >
+                Refresh Totals
+              </button>
+
+              <div className="mt-4">
+                <h4 className="text-sm font-medium mb-2">Totals preview</h4>
+                <div className="max-h-64 overflow-auto border rounded p-2 bg-white/5">
+                  {totals.length === 0 ? (
+                    <div className="text-sm text-slate-400">No totals yet</div>
+                  ) : (
+                    <ul className="text-sm space-y-1">
+                      {totals.slice(0, 20).map((t) => (
+                        <li key={t.team_id} className="flex justify-between">
+                          <span>{t.name}</span>
+                          <span className="font-mono">{t.total_points}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      )}
 
       <main className="max-w-6xl mx-auto px-4 py-8 space-y-6">
         {/* Assign scores card */}
