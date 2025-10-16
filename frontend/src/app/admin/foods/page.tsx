@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from 'react';
-import authFetch from '../../lib/api/client';
+import authFetch from '../../../lib/api/client';
 
 type Food = { id: number; name: string; created_at?: string };
 
