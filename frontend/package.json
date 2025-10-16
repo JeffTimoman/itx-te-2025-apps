@@ -16,7 +16,7 @@
     "framer-motion": "^10.12.16",
     "canvas-confetti": "^1.6.0"
     ,
-    "@zxing/library": "^0.19.8"
+    "@zxing/library": "^0.18.6"
   },
   "devDependencies": {
     "typescript": "^5",
