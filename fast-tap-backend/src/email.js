@@ -57,18 +57,62 @@ async function sendVerificationEmail(getPgPool, registrantId) {
       process.env.SMTP_FROM ||
       `no-reply@${process.env.POSTFIX_MYDOMAIN || "te-itx-2025.site"}`;
 
+    // Generate a food voucher for this registrant and attach barcode for the voucher code.
+    // Voucher is optional: if insertion or barcode generation fails, fall back to using
+    // the registrant.gacha_code (existing behavior).
+    let voucher = null;
     let barcodePng = null;
     try {
-      barcodePng = await bwipjs.toBuffer({
-        bcid: "code128",
-        text: registrant.gacha_code || "",
-        scale: 3,
-        height: 10,
-        includetext: false,
-        backgroundcolor: "FFFFFF",
-      });
+      // Create a short 16-char alphanumeric voucher code
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+      let code = '';
+      for (let i = 0; i < 16; i++) code += chars[Math.floor(Math.random() * chars.length)];
+
+      // Insert voucher linked to registrant (registrant_id set) - ignore conflict if any
+      try {
+        const insertRes = await pgPool.query(
+          'INSERT INTO food_voucher (code, registrant_id) VALUES ($1, $2) RETURNING id, code, is_claimed, registrant_id, created_at',
+          [code, registrantId]
+        );
+        voucher = insertRes.rows[0];
+      } catch (e) {
+        // If unique conflict (rare), try again a few times with a new code
+        for (let attempt = 0; attempt < 3 && !voucher; attempt++) {
+          code = '';
+          for (let i = 0; i < 16; i++) code += chars[Math.floor(Math.random() * chars.length)];
+          try {
+            const insertRes2 = await pgPool.query(
+              'INSERT INTO food_voucher (code, registrant_id) VALUES ($1, $2) RETURNING id, code, is_claimed, registrant_id, created_at',
+              [code, registrantId]
+            );
+            voucher = insertRes2.rows[0];
+            break;
+          } catch (e2) {
+            // continue to next attempt
+          }
+        }
+      }
+
+      // If voucher created, generate barcode for voucher.code
+      const barcodeText = voucher ? voucher.code : registrant.gacha_code || '';
+      if (barcodeText) {
+        try {
+          barcodePng = await bwipjs.toBuffer({
+            bcid: 'code128',
+            text: barcodeText,
+            scale: 3,
+            height: 10,
+            includetext: false,
+            backgroundcolor: 'FFFFFF',
+          });
+        } catch (err) {
+          log.warn('Failed to generate barcode image for voucher/gacha:', err && err.message);
+          barcodePng = null;
+        }
+      }
     } catch (err) {
-      log.warn("Failed to generate barcode image:", err && err.message);
+      log.warn('Voucher creation/barcode generation failed:', err && err.message);
+      voucher = null;
       barcodePng = null;
     }
 
@@ -82,18 +126,17 @@ async function sendVerificationEmail(getPgPool, registrantId) {
     });
 
     const to = registrant.email;
-    const subject = "By Owl Post: Your Verification & Gacha Code";
+  const subject = "By Owl Post: Your Verification & Food Voucher";
 
     // Plain-text fallback (kept concise)
+    const voucherLine = voucher ? `Your food voucher code: ${voucher.code}` : `Your gacha code: ${registrant.gacha_code || '(not found)'}`;
     const text = [
-      `Dear ${registrant.name}${
-        registrant.bureau ? ` — ${registrant.bureau}` : ""
-      },`,
+      `Dear ${registrant.name}${registrant.bureau ? ` — ${registrant.bureau}` : ""},`,
       "",
       "Your registration has been verified.",
-      `Your gacha code: ${registrant.gacha_code || "(not found)"}`,
+      voucherLine,
       "",
-      "Present this code at the event to claim or verify prizes.",
+      "Present this code or the barcode at the food claim desk to receive your meal.",
       "Good luck!",
     ].join("\n");
 
@@ -102,8 +145,9 @@ async function sendVerificationEmail(getPgPool, registrantId) {
     const bureauEsc = registrant.bureau
       ? ` — ${escapeHtml(registrant.bureau)}`
       : "";
-    const codeEsc = escapeHtml(registrant.gacha_code || "");
-    const hasBarcode = Boolean(barcodePng);
+  const voucherEsc = voucher ? escapeHtml(voucher.code) : null;
+  const codeEsc = escapeHtml(registrant.gacha_code || "");
+  const hasBarcode = Boolean(barcodePng);
 
     const html = `
 <!DOCTYPE html>
@@ -202,7 +246,7 @@ async function sendVerificationEmail(getPgPool, registrantId) {
                           border:1px dashed rgba(124,30,30,0.35);
                           border-radius:10px;
                         "
-                      >${codeEsc || "&mdash;"}</div>
+                      >${voucherEsc || codeEsc || "&mdash;"}</div>
                     </td>
                   </tr>
                 </table>
@@ -212,15 +256,15 @@ async function sendVerificationEmail(getPgPool, registrantId) {
                     ? `
                 <!-- Barcode -->
                 <div style="text-align:center;margin:8px 0 2px;">
-                  <img src="cid:gcodeimg" width="320" height="60" alt="Your code in barcode form" style="display:inline-block;border:0;outline:none;text-decoration:none;" />
+                  <img src="cid:vouchercodeimg" width="320" height="60" alt="Your voucher code in barcode form" style="display:inline-block;border:0;outline:none;text-decoration:none;" />
                 </div>
                 <div style="text-align:center;color:#6e5846;font-size:12px;margin-top:2px;">
-                  Present this code (or the barcode) at the event desk.
+                  Present this voucher code (or the barcode) at the food claim desk to redeem your meal.
                 </div>
                 `
                     : `
                 <div style="text-align:center;color:#6e5846;font-size:12px;margin:4px 0;">
-                  (Barcode unavailable — the code above is sufficient.)
+                  (Barcode unavailable — the code above is sufficient to claim your food.)
                 </div>
                 `
                 }
@@ -260,9 +304,9 @@ async function sendVerificationEmail(getPgPool, registrantId) {
     };
     if (barcodePng) {
       mailOptions.attachments.push({
-        filename: "gcode.png",
+        filename: "voucher.png",
         content: barcodePng,
-        cid: "gcodeimg",
+        cid: "vouchercodeimg",
         contentType: "image/png",
       });
     }

@@ -40,6 +40,17 @@ CREATE TABLE IF NOT EXISTS food(
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Vouchers for foods: independent from registrant_claim_foods. Each voucher has a code
+-- that can be claimed by a registrant. Vouchers may be pre-generated or created
+-- at verification time and linked to a registrant when sent.
+CREATE TABLE IF NOT EXISTS food_voucher(
+  id SERIAL PRIMARY KEY,
+  code VARCHAR(16) NOT NULL UNIQUE,
+  is_claimed CHAR(1) NOT NULL DEFAULT 'N',
+  registrant_id INTEGER REFERENCES registrants(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Teams table for grouping registrants or admin purposes
 CREATE TABLE IF NOT EXISTS teams(
   id SERIAL PRIMARY KEY,
