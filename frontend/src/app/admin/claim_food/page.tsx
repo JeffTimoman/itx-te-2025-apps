@@ -5,14 +5,16 @@ import React, { useCallback, useEffect, useState } from 'react';
 type Food = { id: number; name: string; created_at?: string };
 type Registrant = { id: number; name?: string; email?: string; gacha_code?: string; bureau?: string };
 
+import authFetch from '../../../lib/api/client';
+
 async function apiGet<T = unknown>(path: string): Promise<T> {
-  const res = await fetch(path);
+  const res = await authFetch(path);
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<T>;
 }
 
 async function apiPost<T = unknown>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const res = await authFetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (!res.ok) throw new Error(await res.text());
   return res.json() as Promise<T>;
 }
