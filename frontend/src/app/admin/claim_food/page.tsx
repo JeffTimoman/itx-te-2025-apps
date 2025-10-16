@@ -15,13 +15,24 @@ import authFetch from "../../../lib/api/client";
  * - Robust status messaging + toasts-like chips
  */
 export default function ClaimFoodScannerPage() {
-  type WindowWithBD = Window & { BarcodeDetector?: any };
+  type WindowWithBD = Window & { BarcodeDetector?: unknown };
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const detectorRef = useRef<any | null>(null); // BarcodeDetector instance
+  interface BarcodeDetectorLike {
+    detect(source: HTMLVideoElement): Promise<Array<Record<string, unknown>>>;
+  }
+  type BarcodeDetectorCtor = new (opts?: { formats?: string[] }) => BarcodeDetectorLike;
+
+  const detectorRef = useRef<BarcodeDetectorLike | null>(null); // BarcodeDetector instance
   const intervalRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const jsqrRef = useRef<any | null>(null); // jsQR module
+  type JsQRFn = (
+    data: Uint8ClampedArray,
+    width: number,
+    height: number
+  ) => { data: string } | null;
+
+  const jsqrRef = useRef<JsQRFn | null>(null); // jsQR module
 
   const [scanning, setScanning] = useState(false);
   const [paused, setPaused] = useState(false); // logical pause without tearing down UI
@@ -47,24 +58,200 @@ export default function ClaimFoodScannerPage() {
     }
   }
 
-  async function ensureDetector() {
+  const ensureDetector = useCallback(async () => {
     if (detectorRef.current) return detectorRef.current;
     const BD = (window as WindowWithBD).BarcodeDetector;
     if (BD) {
       try {
-        detectorRef.current = new BD({
+        const Ctor = BD as unknown as BarcodeDetectorCtor;
+        detectorRef.current = new Ctor({
           formats: ["code_128", "code_39", "ean_13", "qr_code"],
         });
         return detectorRef.current;
-      } catch (e) {
+      } catch {
         // If creation fails, fall through to jsQR fallback
         detectorRef.current = null;
       }
     }
     return null;
+  }, []);
+
+  // Camera controls are defined after the scanner loop to avoid hook dependency ordering issues
+
+  // --- Backend ---
+  function getMsgFromUnknown(d: unknown): string | undefined {
+    if (!d || typeof d !== 'object') return undefined;
+    const o = d as Record<string, unknown>;
+    if (typeof o.error === 'string') return o.error;
+    if (typeof o.message === 'string') return o.message;
+    return undefined;
   }
 
-  // --- Camera controls ---
+  function getVoucherFromUnknown(d: unknown): Record<string, unknown> | undefined {
+    if (!d || typeof d !== 'object') return undefined;
+    const o = d as Record<string, unknown>;
+    if (o.voucher && typeof o.voucher === 'object') return o.voucher as Record<string, unknown>;
+    // if object itself resembles voucher, return it
+    return o as Record<string, unknown>;
+  }
+
+  function voucherIsClaimed(v?: Record<string, unknown> | null): boolean {
+    if (!v || typeof v !== "object") return false;
+    const val = v["is_claimed"];
+    return String(val ?? "") === "Y";
+  }
+
+  // pauseCamera is defined later with camera controls
+
+  const validateCode = useCallback(async (code: string) => {
+    try {
+      const res = await authFetch(
+        `/api/admin/food-vouchers/${encodeURIComponent(code)}`
+      );
+        let data: unknown = null;
+        try {
+          data = await res.json();
+        } catch {
+          // not JSON — try to read as text for debugging
+          try {
+            const txt = await res.text();
+            data = { message: txt };
+          } catch {
+            data = null;
+          }
+        }
+      if (!res.ok)
+        return {
+          ok: false,
+          error: getMsgFromUnknown(data) || `${res.status} ${res.statusText}`,
+        } as const;
+      return {
+        ok: true,
+        voucher: (getVoucherFromUnknown(data) as Record<string, unknown>),
+      } as const;
+    } catch (err) {
+      return { ok: false, error: String(err) } as const;
+    }
+  }, []);
+
+  const claimCode = useCallback(async (code: string) => {
+    try {
+      const res = await authFetch(
+        `/api/admin/food-vouchers/${encodeURIComponent(code)}/claim`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        }
+      );
+      let data: unknown = null;
+      try {
+        data = await res.json();
+      } catch {
+        try {
+          const txt = await res.text();
+          data = { message: txt };
+        } catch {
+          data = null;
+        }
+      }
+      if (!res.ok)
+        return {
+          ok: false,
+          error: getMsgFromUnknown(data) || `${res.status} ${res.statusText}`,
+        } as const;
+      return { ok: true, data } as const;
+    } catch (err) {
+      return { ok: false, error: String(err) } as const;
+    }
+  }, []);
+
+  // pauseRef will be assigned to the real pauseCamera after camera controls
+  const pauseRef = useRef<() => void>(() => {});
+
+  // onDetected is stored in a ref so the scanner loop can call it without
+  // creating circular hook dependencies. The function itself can use
+  // stable callbacks like validateCode and will call pauseRef.current()
+  const onDetectedRef = useRef<((raw: string) => Promise<void>) | null>(null);
+  onDetectedRef.current = async (raw: string) => {
+    const code = String(raw || "").trim();
+    if (!code) return;
+    // suppress duplicates & rapid fire
+    const t = now();
+    if (code === lastDetected && t < cooldownUntil) return;
+    setLastDetected(code);
+    setCooldownUntil(t + 1500);
+
+    if (busy) return; // guard
+    setBusy(true);
+    setStatus(`Detected: ${code} — validating…`);
+    const v = await validateCode(code);
+    setBusy(false);
+
+    if (!v.ok) {
+      setStatus(`Invalid voucher: ${v.error || "not found"}`);
+      return; // loop continues
+    }
+    // Open popup and pause camera until decision
+    setPopup({ code, voucher: v.voucher });
+    try {
+      pauseRef.current();
+    } catch {
+      // ignore
+    }
+  };
+
+  // --- Scanner loop (throttled) ---
+  const loop = useCallback(async () => {
+    if (!scanning || paused) return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Prefer native API
+    const detector = await ensureDetector();
+    if (detector) {
+      try {
+        const barcodes = await detector.detect(video);
+        if (barcodes && barcodes.length > 0) {
+          const b0 = barcodes[0] as Record<string, unknown>;
+          const val = String(
+            (b0.rawValue as string) || (b0.rawText as string) || (b0.raw_data as string) || ""
+          );
+          if (val && onDetectedRef.current) onDetectedRef.current(val);
+        }
+      } catch {
+        // if detect fails repeatedly, fall back later
+      }
+      return;
+    }
+
+    // Fallback: jsQR (lazy load once)
+      try {
+        if (!jsqrRef.current) {
+          const mod = await import("jsqr");
+          // prefer default export if present, otherwise module itself is the function
+          const maybe = (mod as { default?: JsQRFn }).default ?? (mod as unknown as JsQRFn);
+          jsqrRef.current = maybe;
+        }
+      const w = video.videoWidth || 640;
+      const h = video.videoHeight || 480;
+      if (!w || !h) return; // not ready yet
+
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, w, h);
+      const imgData = ctx.getImageData(0, 0, w, h);
+      const result = jsqrRef.current(imgData.data, w, h);
+      if (result?.data && onDetectedRef.current) onDetectedRef.current(String(result.data));
+      } catch {
+        // ignore
+      }
+  }, [paused, scanning, ensureDetector]);
+
+  // --- Camera controls (defined after loop) ---
   const startCamera = useCallback(async () => {
     setStatus("Requesting camera permission…");
     try {
@@ -81,15 +268,16 @@ export default function ClaimFoodScannerPage() {
       setScanning(true);
       setPaused(false);
       setStatus("Scanning…");
-      // spin the loop
-      spin();
+      // start the scan loop
+      clearTimer();
+      intervalRef.current = window.setInterval(loop, 500);
     } catch (err) {
       console.error("Camera start failed", err);
       setStatus("Camera permission denied or unavailable");
       setScanning(false);
       setPaused(false);
     }
-  }, []);
+  }, [loop]);
 
   const stopCamera = useCallback(() => {
     clearTimer();
@@ -125,130 +313,17 @@ export default function ClaimFoodScannerPage() {
     s.getVideoTracks().forEach((t) => (t.enabled = true));
     setPaused(false);
     setStatus("Scanning…");
-    spin();
-  }, [startCamera]);
-
-  // --- Backend ---
-  async function validateCode(code: string) {
-    try {
-      const res = await authFetch(
-        `/api/admin/food-vouchers/${encodeURIComponent(code)}`
-      );
-      const data = await res.json().catch(() => null);
-      if (!res.ok)
-        return {
-          ok: false,
-          error: (data && (data.error || data.message)) || `HTTP ${res.status}`,
-        } as const;
-      return {
-        ok: true,
-        voucher: (data && (data.voucher || data)) as Record<string, unknown>,
-      } as const;
-    } catch (err) {
-      return { ok: false, error: String(err) } as const;
-    }
-  }
-
-  async function claimCode(code: string) {
-    try {
-      const res = await authFetch(
-        `/api/admin/food-vouchers/${encodeURIComponent(code)}/claim`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        }
-      );
-      const data = await res.json().catch(() => null);
-      if (!res.ok)
-        return {
-          ok: false,
-          error: (data && (data.error || data.message)) || `HTTP ${res.status}`,
-        } as const;
-      return { ok: true, data } as const;
-    } catch (err) {
-      return { ok: false, error: String(err) } as const;
-    }
-  }
-
-  // --- Detection handler ---
-  const onDetected = useCallback(
-    async (raw: string) => {
-      const code = String(raw || "").trim();
-      if (!code) return;
-      // suppress duplicates & rapid fire
-      const t = now();
-      if (code === lastDetected && t < cooldownUntil) return;
-      setLastDetected(code);
-      setCooldownUntil(t + 1500);
-
-      if (busy) return; // guard
-      setBusy(true);
-      setStatus(`Detected: ${code} — validating…`);
-      const v = await validateCode(code);
-      setBusy(false);
-
-      if (!v.ok) {
-        setStatus(`Invalid voucher: ${v.error || "not found"}`);
-        return; // loop continues
-      }
-      // Open popup and pause camera until decision
-      setPopup({ code, voucher: v.voucher });
-      pauseCamera();
-    },
-    [busy, lastDetected, cooldownUntil, pauseCamera]
-  );
-
-  // --- Scanner loop (throttled) ---
-  const loop = useCallback(async () => {
-    if (!scanning || paused) return;
-    const video = videoRef.current;
-    if (!video) return;
-
-    // Prefer native API
-    const detector = await ensureDetector();
-    if (detector) {
-      try {
-        const barcodes = await detector.detect(video);
-        if (barcodes && barcodes.length > 0) {
-          const b = barcodes[0] as any;
-          const val = String(b?.rawValue || b?.rawText || b?.raw_data || "");
-          if (val) onDetected(val);
-        }
-      } catch (e) {
-        // if detect fails repeatedly, fall back later
-      }
-      return;
-    }
-
-    // Fallback: jsQR (lazy load once)
-    try {
-      if (!jsqrRef.current) {
-        const mod = (await import("jsqr")) as any;
-        jsqrRef.current = mod?.default || mod;
-      }
-      const w = video.videoWidth || 640;
-      const h = video.videoHeight || 480;
-      if (!w || !h) return; // not ready yet
-
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.drawImage(video, 0, 0, w, h);
-      const imgData = ctx.getImageData(0, 0, w, h);
-      const result = jsqrRef.current(imgData.data, w, h);
-      if (result?.data) onDetected(String(result.data));
-    } catch {
-      // ignore
-    }
-  }, [onDetected, paused, scanning]);
-
-  const spin = useCallback(() => {
+    // resume loop
     clearTimer();
     intervalRef.current = window.setInterval(loop, 500);
-  }, [loop]);
+  }, [startCamera, loop]);
+
+  // ensure pauseRef.current points to the active pauseCamera implementation
+  useEffect(() => {
+    pauseRef.current = pauseCamera;
+  }, [pauseCamera]);
+
+  // spin was removed — we directly manage interval via clearTimer + setInterval
 
   // --- Lifecycle ---
   useEffect(() => {
@@ -297,7 +372,7 @@ export default function ClaimFoodScannerPage() {
       setStatus("Scanning…");
       if (scanning) resumeCamera();
     }, 900);
-  }, [popup, busy, resumeCamera, scanning]);
+  }, [popup, busy, resumeCamera, scanning, claimCode]);
 
   // --- UI ---
   return (
@@ -399,10 +474,7 @@ export default function ClaimFoodScannerPage() {
               >
                 Cancel
               </button>
-              {!(
-                String((popup.voucher as any)?.is_claimed || "") === "Y" ||
-                popup.claimed
-              ) && (
+              {!(voucherIsClaimed(popup.voucher) || popup.claimed) && (
                 <button
                   onClick={onClaim}
                   disabled={busy}

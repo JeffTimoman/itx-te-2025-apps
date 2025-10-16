@@ -874,15 +874,16 @@ type GiftAvail = {
 type PreviewWinner = { id: number; name: string; gacha_code?: string | null };
 
 // Timings (unchanged)
-const GLITCH_MS_FIRST_PREFIX = 2200;
-const GLITCH_MS_FIRST_SUFFIX = 5000;
-const GLITCH_MS_REFRESH_PREFIX = 500;
-const GLITCH_MS_REFRESH_SUFFIX = 2000;
+// Shortened timings for snappier winner reveals
+const GLITCH_MS_FIRST_PREFIX = 1200; // initial prefix glitch duration (was 2200)
+const GLITCH_MS_FIRST_SUFFIX = 3000; // initial suffix/drum-roll (was 6000)
+const GLITCH_MS_REFRESH_PREFIX = 300; // refresh prefix glitch (was 500)
+const GLITCH_MS_REFRESH_SUFFIX = 800; // refresh suffix glitch (was 2000)
 
-const DECODE_MS_FIRST_PREFIX = 360;
-const DECODE_MS_FIRST_SUFFIX = 1200;
-const DECODE_MS_REFRESH_PREFIX = 220;
-const DECODE_MS_REFRESH_SUFFIX = 400;
+const DECODE_MS_FIRST_PREFIX = 220; // decode phase for prefix (was 360)
+const DECODE_MS_FIRST_SUFFIX = 600; // decode phase for suffix (was 1200)
+const DECODE_MS_REFRESH_PREFIX = 120; // refresh decode prefix (was 220)
+const DECODE_MS_REFRESH_SUFFIX = 200; // refresh decode suffix (was 400)
 
 const SUFFIX_LEN = 10; // 10 digits
 
