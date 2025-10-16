@@ -1,698 +1,445 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import authFetch from "../../../lib/api/client";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import AdminHeader from "../../../components/AdminHeader";
-
-// --- Types ---
-export type Food = { id: number; name: string; created_at?: string };
-export type Registrant = {
-  id: number;
-  name?: string;
-  email?: string;
-  gacha_code?: string;
-  bureau?: string;
-};
-
-// --- Small fetch helpers (kept from your original) ---
-async function apiGet<T = unknown>(path: string): Promise<T> {
-  const res = await authFetch(path);
-  if (!res.ok) throw new Error(await res.text());
-  return res.json() as Promise<T>;
-}
-
-async function apiPost<T = unknown>(path: string, body: unknown): Promise<T> {
-  const res = await authFetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(await res.text());
-  return res.json() as Promise<T>;
-}
-
-// --- Sort types for registrants table ---
-type SortKey = "id" | "name" | "email" | "code" | "bureau" | null;
-type SortDir = "asc" | "desc";
+import authFetch from "../../../lib/api/client";
 
 /**
- * ClaimFoodAdminPage — revamped to match the RegistrantsAdminPage look & patterns
+ * ClaimFoodScannerPage — styled like RegistrantsAdminPage
+ * Improvements:
+ * - Uses AdminHeader & glassy UI
+ * - Clean camera lifecycle with pause/resume, auto-pause on popup
+ * - Single BarcodeDetector instance (if available), jsQR fallback (lazy import)
+ * - Throttled scans, duplicate suppression with cooldown window
+ * - Tab visibility handling (auto-pause when hidden)
+ * - Robust status messaging + toasts-like chips
  */
-export default function ClaimFoodAdminPage() {
-  // Data
-  const [foods, setFoods] = useState<Food[]>([]);
-  const [selectedFoodId, setSelectedFoodId] = useState<number | null>(null);
-  const [eligibleRegistrants, setEligibleRegistrants] = useState<Registrant[]>(
-    []
-  );
+export default function ClaimFoodScannerPage() {
+  type WindowWithBD = Window & { BarcodeDetector?: any };
 
-  // UI state
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const detectorRef = useRef<any | null>(null); // BarcodeDetector instance
+  const intervalRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const jsqrRef = useRef<any | null>(null); // jsQR module
 
-  // Create food
-  const [newFoodName, setNewFoodName] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [paused, setPaused] = useState(false); // logical pause without tearing down UI
+  const [lastDetected, setLastDetected] = useState<string>("");
+  const [cooldownUntil, setCooldownUntil] = useState<number>(0);
 
-  // Claiming state (per-row)
-  const [claimingId, setClaimingId] = useState<number | null>(null);
-
-  // Toolbar + header filters for registrants
-  const [query, setQuery] = useState("");
-  const [pageSize, setPageSize] = useState<number>(10);
-  const [page, setPage] = useState<number>(1);
-
-  const [idFilter, setIdFilter] = useState("");
-  const [nameFilter, setNameFilter] = useState("");
-  const [emailFilter, setEmailFilter] = useState("");
-  const [codeFilter, setCodeFilter] = useState("");
-  const [bureauFilter, setBureauFilter] = useState("");
-
-  const [sortKey, setSortKey] = useState<SortKey>(null);
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
-
-  // Foods sidebar filter
-  const [foodQuery, setFoodQuery] = useState("");
+  const [popup, setPopup] = useState<null | {
+    code: string;
+    voucher: Record<string, unknown>;
+    claimed?: boolean;
+  }>(null);
+  const [statusMessage, setStatusMessage] = useState<string>("");
+  const [busy, setBusy] = useState(false); // prevents concurrent validate/claim
 
   // --- Utils ---
-  function toMessage(err: unknown) {
-    if (!err) return String(err);
-    if (typeof err === "string") return err;
-    if (err instanceof Error) return err.message;
-    try {
-      return JSON.stringify(err);
-    } catch {
-      return String(err);
+  const now = () => Date.now();
+  const setStatus = (msg: string) => setStatusMessage(msg);
+
+  function clearTimer() {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
   }
 
-  // --- Data loaders ---
-  const loadFoods = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiGet<Food[]>("/api/admin/foods");
-      setFoods(data || []);
-      if ((data || []).length > 0 && selectedFoodId == null) {
-        setSelectedFoodId(data[0].id);
+  async function ensureDetector() {
+    if (detectorRef.current) return detectorRef.current;
+    const BD = (window as WindowWithBD).BarcodeDetector;
+    if (BD) {
+      try {
+        detectorRef.current = new BD({
+          formats: ["code_128", "code_39", "ean_13", "qr_code"],
+        });
+        return detectorRef.current;
+      } catch (e) {
+        // If creation fails, fall through to jsQR fallback
+        detectorRef.current = null;
       }
-    } catch (err) {
-      setError(toMessage(err));
-    } finally {
-      setLoading(false);
     }
-  }, [selectedFoodId]);
+    return null;
+  }
 
-  const loadEligible = useCallback(async (foodId: number) => {
-    setLoading(true);
-    setError(null);
+  // --- Camera controls ---
+  const startCamera = useCallback(async () => {
+    setStatus("Requesting camera permission…");
     try {
-      const list = await apiGet<Registrant[]>(
-        `/api/admin/foods/${foodId}/eligible-registrants`
-      );
-      setEligibleRegistrants(list || []);
+      const constraints = {
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      } as MediaStreamConstraints;
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
+      setScanning(true);
+      setPaused(false);
+      setStatus("Scanning…");
+      // spin the loop
+      spin();
     } catch (err) {
-      setError(toMessage(err));
-    } finally {
-      setLoading(false);
+      console.error("Camera start failed", err);
+      setStatus("Camera permission denied or unavailable");
+      setScanning(false);
+      setPaused(false);
     }
   }, []);
 
-  useEffect(() => {
-    loadFoods();
-  }, [loadFoods]);
-
-  useEffect(() => {
-    if (selectedFoodId != null) loadEligible(selectedFoodId);
-    else setEligibleRegistrants([]);
-  }, [selectedFoodId, loadEligible]);
-
-  // --- Create Food ---
-  async function createFood(e?: React.FormEvent) {
-    e?.preventDefault();
-    const name = newFoodName.trim();
-    if (!name) return;
-    setCreating(true);
-    setError(null);
+  const stopCamera = useCallback(() => {
+    clearTimer();
     try {
-      const created = await apiPost<Food>("/api/admin/foods", { name });
-      setFoods((cur) => [created, ...cur]);
-      setNewFoodName("");
-      setSelectedFoodId(created.id);
-    } catch (err) {
-      setError(toMessage(err));
-    } finally {
-      setCreating(false);
+      const s = streamRef.current;
+      if (s) s.getTracks().forEach((t) => t.stop());
+    } catch (e) {
+      console.warn("stopCamera error", e);
     }
-  }
+    if (videoRef.current) videoRef.current.srcObject = null;
+    streamRef.current = null;
+    setScanning(false);
+    setPaused(false);
+    setStatus("Stopped");
+  }, []);
 
-  // --- Claim Food ---
-  async function claimFood(foodId: number, registrantId: number) {
-    setClaimingId(registrantId);
-    setError(null);
+  const pauseCamera = useCallback(() => {
+    // Pause scanning loop & mute camera without fully tearing down
+    clearTimer();
+    const s = streamRef.current;
+    if (s) s.getVideoTracks().forEach((t) => (t.enabled = false));
+    setPaused(true);
+    setStatus("Paused");
+  }, []);
+
+  const resumeCamera = useCallback(() => {
+    const s = streamRef.current;
+    if (!s) {
+      // If stream is gone (e.g., tab suspended), restart fully
+      startCamera();
+      return;
+    }
+    s.getVideoTracks().forEach((t) => (t.enabled = true));
+    setPaused(false);
+    setStatus("Scanning…");
+    spin();
+  }, [startCamera]);
+
+  // --- Backend ---
+  async function validateCode(code: string) {
     try {
-      await apiPost(`/api/admin/foods/${foodId}/claim`, {
-        registrant_id: registrantId,
-      });
-      await loadEligible(foodId);
+      const res = await authFetch(
+        `/api/admin/food-vouchers/${encodeURIComponent(code)}`
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok)
+        return {
+          ok: false,
+          error: (data && (data.error || data.message)) || `HTTP ${res.status}`,
+        } as const;
+      return {
+        ok: true,
+        voucher: (data && (data.voucher || data)) as Record<string, unknown>,
+      } as const;
     } catch (err) {
-      setError(toMessage(err));
-    } finally {
-      setClaimingId(null);
+      return { ok: false, error: String(err) } as const;
     }
   }
 
-  // --- Derived data: registrants pipeline ---
-  const baseFiltered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return eligibleRegistrants;
-    return eligibleRegistrants.filter((r) => {
-      const hay = `${r.id}|${r.name || ""}|${r.email || ""}|${
-        r.gacha_code || ""
-      }|${r.bureau || ""}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [eligibleRegistrants, query]);
-
-  const filtered = useMemo(() => {
-    const idf = idFilter.trim().toLowerCase();
-    const nf = nameFilter.trim().toLowerCase();
-    const ef = emailFilter.trim().toLowerCase();
-    const cf = codeFilter.trim().toLowerCase();
-    const bf = bureauFilter.trim().toLowerCase();
-
-    return baseFiltered.filter((r) => {
-      const idOk = !idf || String(r.id).toLowerCase().includes(idf);
-      const nameOk = !nf || (r.name || "").toLowerCase().includes(nf);
-      const emailOk = !ef || (r.email || "").toLowerCase().includes(ef);
-      const codeOk = !cf || (r.gacha_code || "").toLowerCase().includes(cf);
-      const bureauOk = !bf || (r.bureau || "").toLowerCase().includes(bf);
-      return idOk && nameOk && emailOk && codeOk && bureauOk;
-    });
-  }, [
-    baseFiltered,
-    idFilter,
-    nameFilter,
-    emailFilter,
-    codeFilter,
-    bureauFilter,
-  ]);
-
-  const sorted = useMemo(() => {
-    if (!sortKey) return filtered;
-    const copy = [...filtered];
-    const cmpStr = (a?: string | null, b?: string | null) => {
-      const A = (a || "").toLowerCase();
-      const B = (b || "").toLowerCase();
-      return A < B ? -1 : A > B ? 1 : 0;
-    };
-    const cmpNum = (a?: number | null, b?: number | null) =>
-      (a ?? 0) - (b ?? 0);
-
-    copy.sort((a, b) => {
-      let res = 0;
-      if (sortKey === "id") res = cmpNum(a.id as any, b.id as any);
-      else if (sortKey === "name") res = cmpStr(a.name || "", b.name || "");
-      else if (sortKey === "email") res = cmpStr(a.email || "", b.email || "");
-      else if (sortKey === "code")
-        res = cmpStr(a.gacha_code || "", b.gacha_code || "");
-      else if (sortKey === "bureau")
-        res = cmpStr(a.bureau || "", b.bureau || "");
-      return sortDir === "asc" ? res : -res;
-    });
-
-    return copy;
-  }, [filtered, sortKey, sortDir]);
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const pageSafe = Math.min(page, totalPages);
-  const paged = useMemo(() => {
-    const start = (pageSafe - 1) * pageSize;
-    return sorted.slice(start, start + pageSize);
-  }, [sorted, pageSafe, pageSize]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [
-    query,
-    pageSize,
-    idFilter,
-    nameFilter,
-    emailFilter,
-    codeFilter,
-    bureauFilter,
-    sortKey,
-    sortDir,
-  ]);
-
-  // --- Foods filtered list ---
-  const foodsFiltered = useMemo(() => {
-    const q = foodQuery.trim().toLowerCase();
-    if (!q) return foods;
-    return foods.filter((f) => `${f.id}|${f.name}`.toLowerCase().includes(q));
-  }, [foods, foodQuery]);
-
-  // --- CSV Export for current eligible list ---
-  function exportEligibleCSV() {
-    const headers = ["id", "name", "email", "gacha_code", "bureau"];
-    const rows = sorted.map((r) => [
-      r.id,
-      escapeCSV(r.name || ""),
-      r.email || "",
-      r.gacha_code || "",
-      r.bureau || "",
-    ]);
-    const csv = [headers.join(","), ...rows.map((row) => row.join(","))].join(
-      "\n"
-    );
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `eligible_${selectedFoodId ?? "none"}_${new Date()
-      .toISOString()
-      .slice(0, 19)
-      .replace(/[:T]/g, "-")}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function escapeCSV(val: string) {
-    if (val.includes(",") || val.includes("\n") || val.includes('"')) {
-      return '"' + val.replace(/"/g, '""') + '"';
+  async function claimCode(code: string) {
+    try {
+      const res = await authFetch(
+        `/api/admin/food-vouchers/${encodeURIComponent(code)}/claim`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        }
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok)
+        return {
+          ok: false,
+          error: (data && (data.error || data.message)) || `HTTP ${res.status}`,
+        } as const;
+      return { ok: true, data } as const;
+    } catch (err) {
+      return { ok: false, error: String(err) } as const;
     }
-    return val;
   }
 
-  function toggleSort(next: SortKey, canSort: boolean) {
-    if (!canSort) return;
-    setSortKey((prev) => {
-      if (prev !== next) {
-        setSortDir("asc");
-        return next;
+  // --- Detection handler ---
+  const onDetected = useCallback(
+    async (raw: string) => {
+      const code = String(raw || "").trim();
+      if (!code) return;
+      // suppress duplicates & rapid fire
+      const t = now();
+      if (code === lastDetected && t < cooldownUntil) return;
+      setLastDetected(code);
+      setCooldownUntil(t + 1500);
+
+      if (busy) return; // guard
+      setBusy(true);
+      setStatus(`Detected: ${code} — validating…`);
+      const v = await validateCode(code);
+      setBusy(false);
+
+      if (!v.ok) {
+        setStatus(`Invalid voucher: ${v.error || "not found"}`);
+        return; // loop continues
       }
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-      return prev;
-    });
-  }
+      // Open popup and pause camera until decision
+      setPopup({ code, voucher: v.voucher });
+      pauseCamera();
+    },
+    [busy, lastDetected, cooldownUntil, pauseCamera]
+  );
 
-  // --- Render ---
+  // --- Scanner loop (throttled) ---
+  const loop = useCallback(async () => {
+    if (!scanning || paused) return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Prefer native API
+    const detector = await ensureDetector();
+    if (detector) {
+      try {
+        const barcodes = await detector.detect(video);
+        if (barcodes && barcodes.length > 0) {
+          const b = barcodes[0] as any;
+          const val = String(b?.rawValue || b?.rawText || b?.raw_data || "");
+          if (val) onDetected(val);
+        }
+      } catch (e) {
+        // if detect fails repeatedly, fall back later
+      }
+      return;
+    }
+
+    // Fallback: jsQR (lazy load once)
+    try {
+      if (!jsqrRef.current) {
+        const mod = (await import("jsqr")) as any;
+        jsqrRef.current = mod?.default || mod;
+      }
+      const w = video.videoWidth || 640;
+      const h = video.videoHeight || 480;
+      if (!w || !h) return; // not ready yet
+
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, w, h);
+      const imgData = ctx.getImageData(0, 0, w, h);
+      const result = jsqrRef.current(imgData.data, w, h);
+      if (result?.data) onDetected(String(result.data));
+    } catch {
+      // ignore
+    }
+  }, [onDetected, paused, scanning]);
+
+  const spin = useCallback(() => {
+    clearTimer();
+    intervalRef.current = window.setInterval(loop, 500);
+  }, [loop]);
+
+  // --- Lifecycle ---
+  useEffect(() => {
+    startCamera();
+    return () => stopCamera();
+  }, [startCamera, stopCamera]);
+
+  useEffect(() => {
+    // auto-pause when tab hidden; resume when visible
+    function handleVis() {
+      if (document.hidden) {
+        if (scanning && !paused) pauseCamera();
+      } else {
+        if (scanning && paused && !popup) resumeCamera();
+      }
+    }
+    document.addEventListener("visibilitychange", handleVis);
+    return () => document.removeEventListener("visibilitychange", handleVis);
+  }, [pauseCamera, resumeCamera, scanning, paused, popup]);
+
+  // --- Popup actions ---
+  const onCancel = useCallback(() => {
+    setPopup(null);
+    setStatus("Scanning…");
+    setLastDetected("");
+    if (scanning) resumeCamera();
+  }, [resumeCamera, scanning]);
+
+  const onClaim = useCallback(async () => {
+    if (!popup?.code || busy) return;
+    setBusy(true);
+    setStatus("Claiming…");
+    const r = await claimCode(popup.code);
+    setBusy(false);
+    if (!r.ok) {
+      setStatus(`Claim failed: ${r.error || "error"}`);
+      // stay paused but allow retry/close
+      return;
+    }
+    setStatus("Claim successful 🎉");
+    setPopup((prev) => (prev ? { ...prev, claimed: true } : prev));
+    // After a short moment, close & resume
+    setTimeout(() => {
+      setPopup(null);
+      setLastDetected("");
+      setStatus("Scanning…");
+      if (scanning) resumeCamera();
+    }, 900);
+  }, [popup, busy, resumeCamera, scanning]);
+
+  // --- UI ---
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100">
-      {/* Header */}
-      <AdminHeader title="Food Claims">
+      <AdminHeader title="Food Voucher Scanner">
         <button
-          onClick={loadFoods}
-          disabled={loading}
-          className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15 disabled:opacity-50"
+          onClick={() => (scanning ? stopCamera() : startCamera())}
+          className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15"
         >
-          {loading ? "Refreshing…" : "Refresh"}
+          {scanning ? "Stop" : "Start"}
         </button>
         <button
-          onClick={exportEligibleCSV}
-          className="px-3 py-1.5 rounded-lg bg-indigo-500/90 hover:bg-indigo-500 text-xs"
-          disabled={eligibleRegistrants.length === 0}
+          onClick={() => {
+            setLastDetected("");
+            setPopup(null);
+            setStatus("Scanning…");
+            if (scanning && paused && !popup) resumeCamera();
+          }}
+          className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15"
         >
-          Export Eligible CSV
+          Reset
         </button>
       </AdminHeader>
 
-      {/* Main content */}
-      <main className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-        {/* Create food card */}
-        <section className="rounded-2xl p-6 bg-white/5 border border-white/10">
-          <h2 className="text-lg font-bold">Create food</h2>
-          <form
-            onSubmit={createFood}
-            className="mt-4 grid gap-3 sm:grid-cols-3"
-          >
-            <div className="sm:col-span-2">
-              <label
-                htmlFor="food-name"
-                className="block text-xs uppercase tracking-wider opacity-80 mb-1"
-              >
-                Name
-              </label>
-              <input
-                id="food-name"
-                value={newFoodName}
-                onChange={(e) => setNewFoodName(e.target.value)}
-                placeholder="e.g., Bento A"
-                className={`w-full p-3 rounded-xl bg-white/10 border ${
-                  newFoodName.trim() ? "border-white/20" : "border-red-400/40"
-                } outline-none focus:ring-2 focus:ring-indigo-400/60`}
-              />
+      <main className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+        {/* Camera card */}
+        <section className="rounded-2xl overflow-hidden border border-white/10 bg-white/5">
+          <div className="p-4 border-b border-white/10 flex items-center justify-between">
+            <div className="text-sm opacity-80">
+              {paused ? "Paused" : scanning ? "Live" : "Idle"} ·{" "}
+              {statusMessage || (scanning ? "Scanning…" : "")}
             </div>
-            <div className="sm:col-span-1 flex items-end">
-              <button
-                type="submit"
-                disabled={creating}
-                className="relative inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold bg-emerald-500/90 hover:bg-emerald-500 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-slate-900 w-full"
-              >
-                {creating && (
-                  <span className="absolute left-4 h-4 w-4 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
-                )}
-                {creating ? "Creating…" : "Create"}
-              </button>
-            </div>
-          </form>
-          {error && <div className="mt-3 text-sm text-rose-300">{error}</div>}
-        </section>
-
-        {/* Grid */}
-        <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Foods list card */}
-          <div className="rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
-            <div className="p-4 border-b border-white/10 flex items-center justify-between gap-3">
-              <h3 className="font-semibold">Foods</h3>
-              <input
-                value={foodQuery}
-                onChange={(e) => setFoodQuery(e.target.value)}
-                placeholder="Search foods…"
-                className="w-44 p-2 rounded-xl bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
-              />
-            </div>
-            <div className="max-h-96 overflow-auto">
-              {foodsFiltered.length === 0 ? (
-                <div className="p-4 text-sm text-slate-300">No foods yet</div>
+            <div className="flex gap-2">
+              {scanning && !paused ? (
+                <button
+                  onClick={pauseCamera}
+                  className="text-[11px] px-2 py-1 rounded bg-white/10 border border-white/20 hover:bg-white/15"
+                >
+                  Pause
+                </button>
               ) : (
-                <ul>
-                  {foodsFiltered.map((f) => (
-                    <li
-                      key={f.id}
-                      className={`p-3 border-t border-white/10 cursor-pointer hover:bg-white/5 ${
-                        selectedFoodId === f.id ? "bg-white/10" : ""
-                      }`}
-                      onClick={() => setSelectedFoodId(f.id)}
-                    >
-                      <div className="font-semibold">{f.name}</div>
-                      <div className="text-[11px] opacity-70">id: {f.id}</div>
-                    </li>
-                  ))}
-                </ul>
+                <button
+                  onClick={resumeCamera}
+                  className="text-[11px] px-2 py-1 rounded bg-white/10 border border-white/20 hover:bg-white/15"
+                >
+                  Resume
+                </button>
               )}
             </div>
           </div>
-
-          {/* Eligible registrants card */}
-          <div className="lg:col-span-2 rounded-2xl bg-white/5 border border-white/10 overflow-hidden">
-            {/* Toolbar */}
-            <div className="p-4 border-b border-white/10 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
-              <div className="flex-1 flex flex-wrap gap-3 items-center">
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search (id, name, email, code, bureau)"
-                  className="w-80 max-w-full p-2.5 pl-3 rounded-xl bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
-                />
-              </div>
-              <div className="flex gap-2 items-center">
-                <span className="text-xs opacity-70">Rows / page</span>
-                <select
-                  value={pageSize}
-                  onChange={(e) => setPageSize(parseInt(e.target.value, 10))}
-                  className="p-2.5 rounded-xl bg-white/10 border border-white/20"
-                >
-                  {[10, 20, 50].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Table */}
-            <div className="overflow-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-white/10 sticky top-0 z-10">
-                  <tr className="text-left">
-                    <Th
-                      sortable
-                      active={sortKey === "id"}
-                      dir={sortDir}
-                      ariaSort={
-                        sortKey === "id"
-                          ? sortDir === "asc"
-                            ? "ascending"
-                            : "descending"
-                          : "none"
-                      }
-                      onClick={() => toggleSort("id", true)}
-                    >
-                      ID
-                    </Th>
-                    <Th
-                      sortable
-                      active={sortKey === "name"}
-                      dir={sortDir}
-                      ariaSort={
-                        sortKey === "name"
-                          ? sortDir === "asc"
-                            ? "ascending"
-                            : "descending"
-                          : "none"
-                      }
-                      onClick={() => toggleSort("name", true)}
-                    >
-                      Name
-                    </Th>
-                    <Th
-                      sortable
-                      active={sortKey === "email"}
-                      dir={sortDir}
-                      ariaSort={
-                        sortKey === "email"
-                          ? sortDir === "asc"
-                            ? "ascending"
-                            : "descending"
-                          : "none"
-                      }
-                      onClick={() => toggleSort("email", true)}
-                    >
-                      Email
-                    </Th>
-                    <Th
-                      sortable
-                      active={sortKey === "code"}
-                      dir={sortDir}
-                      ariaSort={
-                        sortKey === "code"
-                          ? sortDir === "asc"
-                            ? "ascending"
-                            : "descending"
-                          : "none"
-                      }
-                      onClick={() => toggleSort("code", true)}
-                    >
-                      Code
-                    </Th>
-                    <Th
-                      sortable
-                      active={sortKey === "bureau"}
-                      dir={sortDir}
-                      ariaSort={
-                        sortKey === "bureau"
-                          ? sortDir === "asc"
-                            ? "ascending"
-                            : "descending"
-                          : "none"
-                      }
-                      onClick={() => toggleSort("bureau", true)}
-                    >
-                      Bureau
-                    </Th>
-                    <Th title="Actions">Actions</Th>
-                  </tr>
-                  {/* Header filter row */}
-                  <tr className="text-left border-t border-white/10">
-                    <th className="p-2">
-                      <input
-                        value={idFilter}
-                        onChange={(e) => setIdFilter(e.target.value)}
-                        placeholder="Filter ID…"
-                        inputMode="numeric"
-                        className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
-                      />
-                    </th>
-                    <th className="p-2">
-                      <input
-                        value={nameFilter}
-                        onChange={(e) => setNameFilter(e.target.value)}
-                        placeholder="Filter name…"
-                        className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
-                      />
-                    </th>
-                    <th className="p-2">
-                      <input
-                        value={emailFilter}
-                        onChange={(e) => setEmailFilter(e.target.value)}
-                        placeholder="Filter email…"
-                        className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
-                      />
-                    </th>
-                    <th className="p-2">
-                      <input
-                        value={codeFilter}
-                        onChange={(e) => setCodeFilter(e.target.value)}
-                        placeholder="Filter code…"
-                        className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
-                      />
-                    </th>
-                    <th className="p-2">
-                      <input
-                        value={bureauFilter}
-                        onChange={(e) => setBureauFilter(e.target.value)}
-                        placeholder="Filter bureau…"
-                        className="w-full p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
-                      />
-                    </th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    [...Array(pageSize)].map((_, i) => (
-                      <tr key={i} className="border-t border-white/10">
-                        {[...Array(6)].map((__, j) => (
-                          <td key={j} className="p-3">
-                            <div className="h-4 w-24 sm:w-32 bg-white/10 rounded animate-pulse" />
-                          </td>
-                        ))}
-                      </tr>
-                    ))
-                  ) : paged.length === 0 ? (
-                    <tr>
-                      <td
-                        className="p-6 text-center text-slate-300"
-                        colSpan={6}
-                      >
-                        {selectedFoodId == null
-                          ? "Select a food to view eligible registrants"
-                          : "No eligible registrants"}
-                      </td>
-                    </tr>
-                  ) : (
-                    paged.map((r) => (
-                      <tr
-                        key={r.id}
-                        className="border-t border-white/10 hover:bg-white/5"
-                      >
-                        <td className="p-3 font-mono opacity-80 whitespace-nowrap">
-                          {r.id}
-                        </td>
-                        <td className="p-3 min-w-[14rem]">
-                          {r.name || <span className="opacity-60">—</span>}
-                        </td>
-                        <td className="p-3 min-w-[16rem]">
-                          {r.email || <span className="opacity-60">—</span>}
-                        </td>
-                        <td className="p-3 whitespace-nowrap">
-                          {r.gacha_code || (
-                            <span className="opacity-60">—</span>
-                          )}
-                        </td>
-                        <td className="p-3 whitespace-nowrap">
-                          {r.bureau || <span className="opacity-60">—</span>}
-                        </td>
-                        <td className="p-3 whitespace-nowrap">
-                          <button
-                            onClick={() =>
-                              claimFood(selectedFoodId as number, r.id)
-                            }
-                            disabled={claimingId === r.id}
-                            className="relative text-[11px] px-2 py-1 rounded bg-emerald-500/80 hover:bg-emerald-500 border border-emerald-400/40 disabled:opacity-60"
-                          >
-                            {claimingId === r.id && (
-                              <span className="absolute -left-5 h-4 w-4 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
-                            )}
-                            {claimingId === r.id ? "Claiming…" : "Claim"}
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination */}
-            <div className="flex items-center justify-between px-4 py-3 border-t border-white/10 text-xs">
-              <div className="opacity-80">
-                Showing <strong>{paged.length}</strong> of{" "}
-                <strong>{sorted.length}</strong> result
-                {sorted.length !== 1 ? "s" : ""}
-              </div>
-              <div className="flex items-center gap-1">
-                <button
-                  className="px-2 py-1 rounded bg-white/10 border border-white/20 disabled:opacity-50"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={pageSafe <= 1}
-                >
-                  Prev
-                </button>
-                <span className="px-2">
-                  Page {pageSafe} / {totalPages}
-                </span>
-                <button
-                  className="px-2 py-1 rounded bg-white/10 border border-white/20 disabled:opacity-50"
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={pageSafe >= totalPages}
-                >
-                  Next
-                </button>
-              </div>
-            </div>
+          <div className="bg-black">
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full max-h-[480px] object-contain bg-black"
+            />
           </div>
         </section>
 
-        {error && <div className="text-sm text-rose-300">{error}</div>}
+        {/* Tips card */}
+        <section className="rounded-2xl p-4 border border-white/10 bg-white/5 text-sm text-slate-200/90">
+          <div className="font-semibold mb-1">Tips</div>
+          <ul className="list-disc pl-5 space-y-1 opacity-90">
+            <li>Ensure good lighting and keep the code within the frame.</li>
+            <li>
+              We auto-pause the camera when a voucher is detected so you can
+              decide to claim or cancel.
+            </li>
+            <li>Duplicate scans are throttled for 1.5s to avoid spam.</li>
+          </ul>
+        </section>
       </main>
+
+      {/* Popup */}
+      {popup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-gradient-to-b from-white/10 to-white/5 text-slate-100 shadow-2xl">
+            <div className="p-5 border-b border-white/10 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Voucher detected</h3>
+              <button
+                onClick={onCancel}
+                className="text-xs px-2 py-1 rounded-lg bg-white/10 border border-white/20 hover:bg-white/15"
+              >
+                Close
+              </button>
+            </div>
+            <div className="p-5 space-y-2">
+              <div className="text-sm opacity-80">Code</div>
+              <div className="font-mono break-all text-base">{popup.code}</div>
+              <div className="text-sm opacity-80 mt-3">Status</div>
+              <VoucherStatus voucher={popup.voucher} claimed={popup.claimed} />
+            </div>
+            <div className="p-5 border-t border-white/10 flex justify-end gap-2">
+              <button
+                onClick={onCancel}
+                className="text-[11px] px-3 py-1.5 rounded bg-white/10 border border-white/20 hover:bg-white/15"
+              >
+                Cancel
+              </button>
+              {!(
+                String((popup.voucher as any)?.is_claimed || "") === "Y" ||
+                popup.claimed
+              ) && (
+                <button
+                  onClick={onClaim}
+                  disabled={busy}
+                  className="relative inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl font-semibold bg-amber-500/90 hover:bg-amber-500 disabled:opacity-50"
+                >
+                  {busy && (
+                    <span className="absolute left-3 h-4 w-4 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
+                  )}
+                  {busy ? "Claiming…" : "Claim"}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// --- Small UI bits ---
-function Th({
-  children,
-  sortable,
-  active,
-  dir,
-  onClick,
-  ariaSort,
-  title,
+function VoucherStatus({
+  voucher,
+  claimed,
 }: {
-  children: React.ReactNode;
-  sortable?: boolean;
-  active?: boolean;
-  dir?: "asc" | "desc";
-  onClick?: () => void;
-  ariaSort?: "none" | "ascending" | "descending";
-  title?: string;
+  voucher: Record<string, unknown>;
+  claimed?: boolean;
 }) {
-  const base =
-    "p-3 text-[11px] font-semibold uppercase tracking-wider text-slate-200/90";
-  if (!sortable) {
-    return (
-      <th className={base + " opacity-70"} aria-sort={ariaSort} title={title}>
-        {children}
-      </th>
-    );
-  }
+  const already = String(voucher?.["is_claimed"] || "") === "Y";
+  const isClaimed = already || !!claimed;
   return (
-    <th className={base} aria-sort={ariaSort} title={title || "Click to sort"}>
-      <button
-        onClick={onClick}
-        className={
-          "inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-white/10 transition " +
-          (active ? "bg-white/10" : "")
-        }
-      >
-        <span>{children}</span>
-        <span className="text-[10px] opacity-80">
-          {active ? (dir === "asc" ? "▲" : "▼") : "↕"}
-        </span>
-      </button>
-    </th>
+    <span
+      className={`inline-block px-2 py-1 rounded border text-[11px] ${
+        isClaimed
+          ? "bg-emerald-500/20 text-emerald-200 border-emerald-400/40"
+          : "bg-white/10 text-slate-200 border-white/20"
+      }`}
+    >
+      {isClaimed ? "Already claimed" : "Not claimed"}
+    </span>
   );
 }

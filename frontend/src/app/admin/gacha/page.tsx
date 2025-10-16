@@ -874,8 +874,8 @@ type GiftAvail = {
 type PreviewWinner = { id: number; name: string; gacha_code?: string | null };
 
 // Timings (unchanged)
-const GLITCH_MS_FIRST_PREFIX = 1500;
-const GLITCH_MS_FIRST_SUFFIX = 6000;
+const GLITCH_MS_FIRST_PREFIX = 2200;
+const GLITCH_MS_FIRST_SUFFIX = 5000;
 const GLITCH_MS_REFRESH_PREFIX = 500;
 const GLITCH_MS_REFRESH_SUFFIX = 2000;
 

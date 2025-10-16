@@ -1,214 +1,445 @@
 "use client";
-import React, { useEffect, useRef, useState, useCallback } from 'react';
 
-// authFetch helper used across admin pages (default export)
+import React, { useEffect, useRef, useState, useCallback } from "react";
+import AdminHeader from "../../../components/AdminHeader";
 import authFetch from "../../../lib/api/client";
 
+/**
+ * ClaimFoodScannerPage — styled like RegistrantsAdminPage
+ * Improvements:
+ * - Uses AdminHeader & glassy UI
+ * - Clean camera lifecycle with pause/resume, auto-pause on popup
+ * - Single BarcodeDetector instance (if available), jsQR fallback (lazy import)
+ * - Throttled scans, duplicate suppression with cooldown window
+ * - Tab visibility handling (auto-pause when hidden)
+ * - Robust status messaging + toasts-like chips
+ */
 export default function ClaimFoodScannerPage() {
-  type WindowWithBD = Window & { BarcodeDetector?: unknown };
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [scanning, setScanning] = useState<boolean>(false);
-  const [lastDetected, setLastDetected] = useState<string>('');
-  const [popup, setPopup] = useState<null | { code: string; voucher: Record<string, unknown>; claimed?: boolean }>(null); // { code, voucher }
-  const [statusMessage, setStatusMessage] = useState<string>('');
+  type WindowWithBD = Window & { BarcodeDetector?: any };
 
-  // Start camera
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const detectorRef = useRef<any | null>(null); // BarcodeDetector instance
+  const intervalRef = useRef<number | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const jsqrRef = useRef<any | null>(null); // jsQR module
+
+  const [scanning, setScanning] = useState(false);
+  const [paused, setPaused] = useState(false); // logical pause without tearing down UI
+  const [lastDetected, setLastDetected] = useState<string>("");
+  const [cooldownUntil, setCooldownUntil] = useState<number>(0);
+
+  const [popup, setPopup] = useState<null | {
+    code: string;
+    voucher: Record<string, unknown>;
+    claimed?: boolean;
+  }>(null);
+  const [statusMessage, setStatusMessage] = useState<string>("");
+  const [busy, setBusy] = useState(false); // prevents concurrent validate/claim
+
+  // --- Utils ---
+  const now = () => Date.now();
+  const setStatus = (msg: string) => setStatusMessage(msg);
+
+  function clearTimer() {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }
+
+  async function ensureDetector() {
+    if (detectorRef.current) return detectorRef.current;
+    const BD = (window as WindowWithBD).BarcodeDetector;
+    if (BD) {
+      try {
+        detectorRef.current = new BD({
+          formats: ["code_128", "code_39", "ean_13", "qr_code"],
+        });
+        return detectorRef.current;
+      } catch (e) {
+        // If creation fails, fall through to jsQR fallback
+        detectorRef.current = null;
+      }
+    }
+    return null;
+  }
+
+  // --- Camera controls ---
   const startCamera = useCallback(async () => {
-    setStatusMessage('Requesting camera permission...');
+    setStatus("Requesting camera permission…");
     try {
-      const constraints = { video: { facingMode: 'environment' }, audio: false };
-  const stream = await navigator.mediaDevices.getUserMedia(constraints);
-  if (videoRef.current) (videoRef.current as HTMLVideoElement).srcObject = stream;
+      const constraints = {
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      } as MediaStreamConstraints;
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
       setScanning(true);
-      setStatusMessage('Scanning...');
+      setPaused(false);
+      setStatus("Scanning…");
+      // spin the loop
+      spin();
     } catch (err) {
-      console.error('Camera start failed', err);
-      setStatusMessage('Camera permission denied or unavailable');
+      console.error("Camera start failed", err);
+      setStatus("Camera permission denied or unavailable");
+      setScanning(false);
+      setPaused(false);
     }
   }, []);
 
-  // Stop camera
   const stopCamera = useCallback(() => {
+    clearTimer();
     try {
-      const v = videoRef.current;
-      const stream = v && (v as HTMLVideoElement).srcObject as MediaStream | null;
-      if (stream) {
-        const tracks = stream.getTracks();
-        tracks.forEach((t: MediaStreamTrack) => t.stop());
-      }
-      if (v) (v as HTMLVideoElement).srcObject = null;
-    } catch (e) { console.warn('stopCamera error', e); }
+      const s = streamRef.current;
+      if (s) s.getTracks().forEach((t) => t.stop());
+    } catch (e) {
+      console.warn("stopCamera error", e);
+    }
+    if (videoRef.current) videoRef.current.srcObject = null;
+    streamRef.current = null;
     setScanning(false);
-    setStatusMessage('Stopped');
+    setPaused(false);
+    setStatus("Stopped");
   }, []);
 
-  // Validate code with backend
+  const pauseCamera = useCallback(() => {
+    // Pause scanning loop & mute camera without fully tearing down
+    clearTimer();
+    const s = streamRef.current;
+    if (s) s.getVideoTracks().forEach((t) => (t.enabled = false));
+    setPaused(true);
+    setStatus("Paused");
+  }, []);
+
+  const resumeCamera = useCallback(() => {
+    const s = streamRef.current;
+    if (!s) {
+      // If stream is gone (e.g., tab suspended), restart fully
+      startCamera();
+      return;
+    }
+    s.getVideoTracks().forEach((t) => (t.enabled = true));
+    setPaused(false);
+    setStatus("Scanning…");
+    spin();
+  }, [startCamera]);
+
+  // --- Backend ---
   async function validateCode(code: string) {
     try {
-      const res = await authFetch(`/api/admin/food-vouchers/${encodeURIComponent(code)}`);
+      const res = await authFetch(
+        `/api/admin/food-vouchers/${encodeURIComponent(code)}`
+      );
       const data = await res.json().catch(() => null);
-      if (!res.ok) return { ok: false, error: (data && (data.error || data.message)) || `HTTP ${res.status}` };
-      return { ok: true, voucher: data && (data.voucher || data) };
+      if (!res.ok)
+        return {
+          ok: false,
+          error: (data && (data.error || data.message)) || `HTTP ${res.status}`,
+        } as const;
+      return {
+        ok: true,
+        voucher: (data && (data.voucher || data)) as Record<string, unknown>,
+      } as const;
     } catch (err) {
-      return { ok: false, error: String(err) };
+      return { ok: false, error: String(err) } as const;
     }
   }
 
-  // Claim code with backend
   async function claimCode(code: string) {
     try {
-      const res = await authFetch(`/api/admin/food-vouchers/${encodeURIComponent(code)}/claim`, { method: 'POST', body: JSON.stringify({}) });
+      const res = await authFetch(
+        `/api/admin/food-vouchers/${encodeURIComponent(code)}/claim`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        }
+      );
       const data = await res.json().catch(() => null);
-      if (!res.ok) return { ok: false, error: (data && (data.error || data.message)) || `HTTP ${res.status}` };
-      return { ok: true, data };
+      if (!res.ok)
+        return {
+          ok: false,
+          error: (data && (data.error || data.message)) || `HTTP ${res.status}`,
+        } as const;
+      return { ok: true, data } as const;
     } catch (err) {
-      return { ok: false, error: String(err) };
+      return { ok: false, error: String(err) } as const;
     }
   }
 
-  // Handle a detected code
-  const onDetected = useCallback(async (raw: string) => {
-    const code = String(raw || '').trim();
-    if (!code) return;
-    if (code === lastDetected) return; // avoid duplicates
-    setLastDetected(code);
-    setStatusMessage(`Detected: ${code} — validating...`);
-    const v = await validateCode(code);
-    if (!v.ok) {
-      setStatusMessage(`Invalid voucher: ${v.error || 'not found'}`);
-      // continue scanning after brief pause
-      setTimeout(() => setLastDetected(''), 1200);
-      return;
-    }
-    // show popup: claim or cancel
-    setPopup({ code, voucher: v.voucher });
-  }, [lastDetected]);
+  // --- Detection handler ---
+  const onDetected = useCallback(
+    async (raw: string) => {
+      const code = String(raw || "").trim();
+      if (!code) return;
+      // suppress duplicates & rapid fire
+      const t = now();
+      if (code === lastDetected && t < cooldownUntil) return;
+      setLastDetected(code);
+      setCooldownUntil(t + 1500);
 
-  // Claim button handler
-  const onClaim = useCallback(async () => {
-    if (!popup || !popup.code) return;
-    setStatusMessage('Claiming...');
-    const r = await claimCode(popup.code);
-    if (!r.ok) {
-      setStatusMessage(`Claim failed: ${r.error || 'error'}`);
-      // clear popup and continue
-      setTimeout(() => { setPopup(null); setLastDetected(''); setStatusMessage('Scanning...'); }, 1200);
-      return;
-    }
-    // Show small success message
-  setStatusMessage('Claim successful 🎉');
-  // use functional update to preserve type shape and avoid missing properties
-  setPopup(prev => prev ? { ...prev, claimed: true } : prev);
-    setTimeout(() => { setPopup(null); setLastDetected(''); setStatusMessage('Scanning...'); }, 1200);
-  }, [popup]);
+      if (busy) return; // guard
+      setBusy(true);
+      setStatus(`Detected: ${code} — validating…`);
+      const v = await validateCode(code);
+      setBusy(false);
 
-  // Scanning loop using BarcodeDetector when available, otherwise sample canvas for QR/barcode library
-  useEffect(() => {
-    let interval: number | null = null;
-  let jsqrLib: any = null;
-  let bufferCanvas: HTMLCanvasElement | null = null;
-  let bufferCtx: CanvasRenderingContext2D | null = null;
-
-    async function loop() {
-      const video = videoRef.current as HTMLVideoElement | null;
-      if (!video) return;
-      // BarcodeDetector API
-      const BD = (window as WindowWithBD).BarcodeDetector;
-      if (BD) {
-        try {
-          type BDConstructor = new (opts: unknown) => { detect: (v: HTMLVideoElement) => Promise<unknown[]> };
-          const detector = new (BD as unknown as BDConstructor)({ formats: ['code_128','code_39','ean_13','qr_code'] });
-          const barcodes = await detector.detect(video as HTMLVideoElement);
-          if (barcodes && barcodes.length > 0) {
-            const b = barcodes[0] as Record<string, unknown>;
-            const val = String((b['rawValue'] || b['rawText'] || b['raw_data'] || ''));
-            onDetected(val);
-          }
-        } catch (e) {
-          console.warn('Barcode detect error', e);
-        }
-      } else {
-        // Fallback: use jsQR to decode QR codes from a hidden canvas
-        try {
-          if (!jsqrLib) {
-            jsqrLib = (await import('jsqr')).default || (await import('jsqr'));
-          }
-          if (!bufferCanvas) {
-            bufferCanvas = document.createElement('canvas');
-            bufferCtx = bufferCanvas.getContext('2d');
-          }
-          if (bufferCtx && bufferCanvas) {
-            const w = (video.videoWidth || 640);
-            const h = (video.videoHeight || 480);
-            bufferCanvas.width = w;
-            bufferCanvas.height = h;
-            bufferCtx.drawImage(video, 0, 0, w, h);
-            const imgData = bufferCtx.getImageData(0, 0, w, h);
-            const code = jsqrLib(imgData.data, w, h);
-            if (code && code.data) {
-              onDetected(String(code.data));
-            }
-          }
-        } catch (err) {
-          // silent fallback fail
-        }
+      if (!v.ok) {
+        setStatus(`Invalid voucher: ${v.error || "not found"}`);
+        return; // loop continues
       }
+      // Open popup and pause camera until decision
+      setPopup({ code, voucher: v.voucher });
+      pauseCamera();
+    },
+    [busy, lastDetected, cooldownUntil, pauseCamera]
+  );
+
+  // --- Scanner loop (throttled) ---
+  const loop = useCallback(async () => {
+    if (!scanning || paused) return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Prefer native API
+    const detector = await ensureDetector();
+    if (detector) {
+      try {
+        const barcodes = await detector.detect(video);
+        if (barcodes && barcodes.length > 0) {
+          const b = barcodes[0] as any;
+          const val = String(b?.rawValue || b?.rawText || b?.raw_data || "");
+          if (val) onDetected(val);
+        }
+      } catch (e) {
+        // if detect fails repeatedly, fall back later
+      }
+      return;
     }
 
-    if (scanning) {
-      interval = window.setInterval(loop, 700);
-    }
-    return () => { if (interval) clearInterval(interval); };
-  }, [scanning, onDetected]);
+    // Fallback: jsQR (lazy load once)
+    try {
+      if (!jsqrRef.current) {
+        const mod = (await import("jsqr")) as any;
+        jsqrRef.current = mod?.default || mod;
+      }
+      const w = video.videoWidth || 640;
+      const h = video.videoHeight || 480;
+      if (!w || !h) return; // not ready yet
 
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, w, h);
+      const imgData = ctx.getImageData(0, 0, w, h);
+      const result = jsqrRef.current(imgData.data, w, h);
+      if (result?.data) onDetected(String(result.data));
+    } catch {
+      // ignore
+    }
+  }, [onDetected, paused, scanning]);
+
+  const spin = useCallback(() => {
+    clearTimer();
+    intervalRef.current = window.setInterval(loop, 500);
+  }, [loop]);
+
+  // --- Lifecycle ---
   useEffect(() => {
-    // Autostart camera when component mounts
     startCamera();
     return () => stopCamera();
   }, [startCamera, stopCamera]);
-  useEffect(() => {
-    // no-op
-  }, []);
 
-  function PopupComponent(): React.ReactElement | null {
-    if (!popup) return null;
-    const voucherClaimedLocal = String((popup.voucher as Record<string, unknown>)['is_claimed'] || '') === 'Y';
-    return (
-      <div className="fixed inset-0 flex items-center justify-center pointer-events-none">
-        <div className="bg-black/50 absolute inset-0"></div>
-        <div className="bg-white rounded-lg p-4 z-10 pointer-events-auto w-[90%] max-w-md">
-          <h3 className="font-bold">Voucher detected</h3>
-          <p className="mt-2">Code: <strong>{popup.code}</strong></p>
-          <p className="mt-1 text-sm text-gray-600">Status: {voucherClaimedLocal ? 'Already claimed' : 'Not claimed'}</p>
-          <div className="mt-3 flex gap-2 justify-end">
-            <button className="px-3 py-2 border rounded" onClick={() => { setPopup(null); setLastDetected(''); setStatusMessage('Scanning...'); }}>Cancel</button>
-            {!voucherClaimedLocal && (
-              <button className="px-3 py-2 bg-amber-800 text-white rounded" onClick={onClaim}>Claim</button>
-            )}
+  useEffect(() => {
+    // auto-pause when tab hidden; resume when visible
+    function handleVis() {
+      if (document.hidden) {
+        if (scanning && !paused) pauseCamera();
+      } else {
+        if (scanning && paused && !popup) resumeCamera();
+      }
+    }
+    document.addEventListener("visibilitychange", handleVis);
+    return () => document.removeEventListener("visibilitychange", handleVis);
+  }, [pauseCamera, resumeCamera, scanning, paused, popup]);
+
+  // --- Popup actions ---
+  const onCancel = useCallback(() => {
+    setPopup(null);
+    setStatus("Scanning…");
+    setLastDetected("");
+    if (scanning) resumeCamera();
+  }, [resumeCamera, scanning]);
+
+  const onClaim = useCallback(async () => {
+    if (!popup?.code || busy) return;
+    setBusy(true);
+    setStatus("Claiming…");
+    const r = await claimCode(popup.code);
+    setBusy(false);
+    if (!r.ok) {
+      setStatus(`Claim failed: ${r.error || "error"}`);
+      // stay paused but allow retry/close
+      return;
+    }
+    setStatus("Claim successful 🎉");
+    setPopup((prev) => (prev ? { ...prev, claimed: true } : prev));
+    // After a short moment, close & resume
+    setTimeout(() => {
+      setPopup(null);
+      setLastDetected("");
+      setStatus("Scanning…");
+      if (scanning) resumeCamera();
+    }, 900);
+  }, [popup, busy, resumeCamera, scanning]);
+
+  // --- UI ---
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100">
+      <AdminHeader title="Food Voucher Scanner">
+        <button
+          onClick={() => (scanning ? stopCamera() : startCamera())}
+          className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15"
+        >
+          {scanning ? "Stop" : "Start"}
+        </button>
+        <button
+          onClick={() => {
+            setLastDetected("");
+            setPopup(null);
+            setStatus("Scanning…");
+            if (scanning && paused && !popup) resumeCamera();
+          }}
+          className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15"
+        >
+          Reset
+        </button>
+      </AdminHeader>
+
+      <main className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+        {/* Camera card */}
+        <section className="rounded-2xl overflow-hidden border border-white/10 bg-white/5">
+          <div className="p-4 border-b border-white/10 flex items-center justify-between">
+            <div className="text-sm opacity-80">
+              {paused ? "Paused" : scanning ? "Live" : "Idle"} ·{" "}
+              {statusMessage || (scanning ? "Scanning…" : "")}
+            </div>
+            <div className="flex gap-2">
+              {scanning && !paused ? (
+                <button
+                  onClick={pauseCamera}
+                  className="text-[11px] px-2 py-1 rounded bg-white/10 border border-white/20 hover:bg-white/15"
+                >
+                  Pause
+                </button>
+              ) : (
+                <button
+                  onClick={resumeCamera}
+                  className="text-[11px] px-2 py-1 rounded bg-white/10 border border-white/20 hover:bg-white/15"
+                >
+                  Resume
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="bg-black">
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              className="w-full max-h-[480px] object-contain bg-black"
+            />
+          </div>
+        </section>
+
+        {/* Tips card */}
+        <section className="rounded-2xl p-4 border border-white/10 bg-white/5 text-sm text-slate-200/90">
+          <div className="font-semibold mb-1">Tips</div>
+          <ul className="list-disc pl-5 space-y-1 opacity-90">
+            <li>Ensure good lighting and keep the code within the frame.</li>
+            <li>
+              We auto-pause the camera when a voucher is detected so you can
+              decide to claim or cancel.
+            </li>
+            <li>Duplicate scans are throttled for 1.5s to avoid spam.</li>
+          </ul>
+        </section>
+      </main>
+
+      {/* Popup */}
+      {popup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-gradient-to-b from-white/10 to-white/5 text-slate-100 shadow-2xl">
+            <div className="p-5 border-b border-white/10 flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Voucher detected</h3>
+              <button
+                onClick={onCancel}
+                className="text-xs px-2 py-1 rounded-lg bg-white/10 border border-white/20 hover:bg-white/15"
+              >
+                Close
+              </button>
+            </div>
+            <div className="p-5 space-y-2">
+              <div className="text-sm opacity-80">Code</div>
+              <div className="font-mono break-all text-base">{popup.code}</div>
+              <div className="text-sm opacity-80 mt-3">Status</div>
+              <VoucherStatus voucher={popup.voucher} claimed={popup.claimed} />
+            </div>
+            <div className="p-5 border-t border-white/10 flex justify-end gap-2">
+              <button
+                onClick={onCancel}
+                className="text-[11px] px-3 py-1.5 rounded bg-white/10 border border-white/20 hover:bg-white/15"
+              >
+                Cancel
+              </button>
+              {!(
+                String((popup.voucher as any)?.is_claimed || "") === "Y" ||
+                popup.claimed
+              ) && (
+                <button
+                  onClick={onClaim}
+                  disabled={busy}
+                  className="relative inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl font-semibold bg-amber-500/90 hover:bg-amber-500 disabled:opacity-50"
+                >
+                  {busy && (
+                    <span className="absolute left-3 h-4 w-4 animate-spin rounded-full border-2 border-white/70 border-t-transparent" />
+                  )}
+                  {busy ? "Claiming…" : "Claim"}
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="p-4">
-      <h2 className="text-xl font-bold">Food Voucher Scanner</h2>
-      <div className="mt-3">
-        <video ref={videoRef} autoPlay muted playsInline style={{ width: '100%', maxHeight: 480, background: '#000' }} />
-        <canvas ref={canvasRef} style={{ display: 'none' }} />
-      </div>
-
-      <div className="mt-3">
-        <div className="text-sm text-gray-600">{statusMessage}</div>
-        <div className="flex gap-2 mt-2">
-          <button className="px-3 py-2 bg-amber-800 text-white rounded" onClick={() => { if (scanning) stopCamera(); else startCamera(); }}>{scanning ? 'Stop' : 'Start'}</button>
-          <button className="px-3 py-2 border rounded" onClick={() => { setLastDetected(''); setPopup(null); setStatusMessage('Scanning...'); }}>Reset</button>
-        </div>
-      </div>
-      {/* Render popup via inner component (keeps JSX parsing simpler) */}
-      <PopupComponent />
+      )}
     </div>
+  );
+}
+
+function VoucherStatus({
+  voucher,
+  claimed,
+}: {
+  voucher: Record<string, unknown>;
+  claimed?: boolean;
+}) {
+  const already = String(voucher?.["is_claimed"] || "") === "Y";
+  const isClaimed = already || !!claimed;
+  return (
+    <span
+      className={`inline-block px-2 py-1 rounded border text-[11px] ${
+        isClaimed
+          ? "bg-emerald-500/20 text-emerald-200 border-emerald-400/40"
+          : "bg-white/10 text-slate-200 border-white/20"
+      }`}
+    >
+      {isClaimed ? "Already claimed" : "Not claimed"}
+    </span>
   );
 }

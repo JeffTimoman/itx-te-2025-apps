@@ -66,7 +66,7 @@ export default function GeneratePage() {
     const id = setInterval(() => {
       // avoid overlapping calls
       if (!loading) void createCode();
-    }, 2000);
+    }, 3000);
     return () => clearInterval(id);
   }, [autoRefresh, loading, createCode]);
 
@@ -148,7 +148,7 @@ export default function GeneratePage() {
                 onChange={(e) => setAutoRefresh(e.target.checked)}
                 className="accent-indigo-400"
               />
-              Auto refresh (2s)
+              Auto refresh (3s)
             </label>
           </div>
           <div className="flex flex-wrap gap-2">
