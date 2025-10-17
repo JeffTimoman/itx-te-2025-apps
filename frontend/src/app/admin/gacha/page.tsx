@@ -2083,29 +2083,68 @@ export default function GachaPageMain() {
                   <div className="text-[11px] uppercase tracking-wider text-amber-300/70 mb-2">
                     Actions
                   </div>
-                  <div className="grid grid-cols-1 gap-2">
-                    <button
-                      onClick={() => pickRandom(true)}
-                      disabled={loading}
-                      className="px-3 py-2 rounded-md bg-[#7c1e1e] hover:bg-[#8f2525] border border-amber-900/40 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      Get Winner(s)
-                    </button>
-                    <button
-                      onClick={() => pickRandom(false)}
-                      disabled={loading}
-                      className="px-3 py-2 rounded-md bg-amber-950/30 hover:bg-amber-950/40 border border-amber-900/40 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      Refresh Winner(s)
-                    </button>
-                    <button
-                      onClick={saveWinner}
-                      disabled={loading}
-                      className="px-3 py-2 rounded-md bg-emerald-700/80 hover:bg-emerald-700 border border-emerald-900/40 text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
-                    >
-                      Save Winners
-                    </button>
-                  </div>
+                  {/* derive canDraw / canSave */}
+                  {/* canDraw: not loading, have at least one selectedGift for each active slot, and availability for each */}
+                  {(() => {
+                    const slots = winnersCount;
+                    let canDraw = !loading;
+                    const selection = selectedGiftsArr.slice(0, slots);
+                    if (selection.length < slots) canDraw = false;
+                    for (let i = 0; i < selection.length; i++) {
+                      const gid = selection[i];
+                      if (!gid) { canDraw = false; break; }
+                      const gobj = gifts.find((g) => g.id === gid);
+                      const avail = gobj ? Math.max(0, (gobj.quantity ?? 0) - (gobj.awarded ?? 0)) : 0;
+                      if (avail <= 0) { canDraw = false; break; }
+                    }
+
+                    const canSave = !loading && previews.slice(0, slots).every((p) => !!p) && selection.length === slots;
+
+                    return (
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => pickRandom(true)}
+                          disabled={!canDraw}
+                          aria-label="Draw winners"
+                          className={`w-10 h-10 flex items-center justify-center rounded-full ${canDraw ? 'bg-[#7c1e1e] hover:bg-[#8f2525] border border-amber-900/40 text-white' : 'bg-amber-950/20 text-amber-400 cursor-not-allowed opacity-60'}`}
+                        >
+                          {/* play/start icon */}
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                          </svg>
+                        </button>
+
+                        <button
+                          onClick={() => pickRandom(false)}
+                          disabled={!canDraw}
+                          aria-label="Refresh winners"
+                          className={`w-10 h-10 flex items-center justify-center rounded-full ${canDraw ? 'bg-amber-950/30 hover:bg-amber-950/40 border border-amber-900/40 text-amber-100' : 'bg-amber-950/10 text-amber-400 cursor-not-allowed opacity-60'}`}
+                        >
+                          {/* refresh icon */}
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <polyline points="1 20 1 14 7 14"></polyline>
+                            <path d="M3.51 9a9 9 0 0114.13-3.36L23 10"></path>
+                            <path d="M20.49 15a9 9 0 01-14.13 3.36L1 14"></path>
+                          </svg>
+                        </button>
+
+                        <button
+                          onClick={saveWinner}
+                          disabled={!canSave}
+                          aria-label="Save winners"
+                          className={`w-10 h-10 flex items-center justify-center rounded-full ${canSave ? 'bg-emerald-600 hover:bg-emerald-600/90 text-white border border-emerald-700/40' : 'bg-amber-950/10 text-amber-400 cursor-not-allowed opacity-60'}`}
+                        >
+                          {/* download/save icon (green) */}
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                          </svg>
+                        </button>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Preview (per slot) */}

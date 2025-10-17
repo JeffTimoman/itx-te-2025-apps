@@ -866,14 +866,14 @@ function RegistrantCombobox({
       </label>
 
       {/* Trigger button */}
-      <button
+        <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
         className="mt-2 w-full p-3 rounded-xl bg-amber-950/20 border border-amber-900/40 text-left flex items-center justify-between"
       >
-        <span className="truncate">
+        <span className="truncate min-w-0">
           {selected
             ? `${selected.name}${
                 selected.bureau ? ` — ${selected.bureau}` : ""
@@ -926,7 +926,7 @@ function RegistrantCombobox({
           </div>
 
           <div ref={listRef} className="max-h-64 overflow-auto py-1">
-            {filtered.map((r, idx) => (
+                  {filtered.map((r, idx) => (
               <button
                 key={r.id}
                 type="button"
@@ -940,7 +940,7 @@ function RegistrantCombobox({
                   ${valueId === r.id ? "bg-emerald-900/30" : ""}`}
               >
                 <div className="flex items-center justify-between gap-3">
-                  <span className="truncate">{r.name}</span>
+                  <span className="truncate min-w-0">{r.name}</span>
                   {r.bureau && (
                     <span className="text-amber-200/70 text-xs shrink-0">
                       {r.bureau}
@@ -1125,7 +1125,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
                 : "bg-rose-900/30 border-rose-400/40 text-rose-100"
             }`}
           >
-            {status}
+            <div className="break-words min-w-0">{status}</div>
           </div>
         )}
 
