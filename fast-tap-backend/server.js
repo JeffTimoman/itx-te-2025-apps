@@ -257,7 +257,7 @@ app.get('/api/admin/registrants', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   try {
     const sql = `
-      SELECT r.id, r.name, r.gacha_code, r.email, r.is_win, r.is_verified, r.is_send_email, r.bureau, r.created_at,
+      SELECT r.id, r.name, r.gacha_code, r.email, r.is_win, r.is_verified, r.is_send_email, r.is_claimed_food, r.bureau, r.created_at,
         COALESCE(gwagg.gifts, '[]') AS gifts
       FROM registrants r
       LEFT JOIN (
@@ -486,7 +486,7 @@ app.post('/api/admin/registrants', async (req, res) => {
     const insertSql = `
       INSERT INTO registrants (name, gacha_code, email, bureau)
       VALUES ($1, $2, $3, $4)
-      RETURNING id, name, gacha_code, email, is_win, is_verified, is_send_email, bureau, created_at
+      RETURNING id, name, gacha_code, email, is_win, is_verified, is_send_email, is_claimed_food, bureau, created_at
     `;
     const vals = [String(name).trim(), null, email, bureau];
     const result = await pgPool.query(insertSql, vals);
@@ -521,7 +521,7 @@ app.patch('/api/admin/registrants/:id', async (req, res) => {
       }
 
       values.push(id);
-      const sql = `UPDATE registrants SET ${updates.join(', ')} WHERE id = $${idx} RETURNING id, name, gacha_code, email, is_win, is_verified, is_send_email, bureau, created_at`;
+  const sql = `UPDATE registrants SET ${updates.join(', ')} WHERE id = $${idx} RETURNING id, name, gacha_code, email, is_win, is_verified, is_send_email, is_claimed_food, bureau, created_at`;
       const result = await pgPool.query(sql, values);
       if (result.rows.length === 0) return res.status(404).json({ error: 'Registrant not found' });
       res.json(result.rows[0]);
