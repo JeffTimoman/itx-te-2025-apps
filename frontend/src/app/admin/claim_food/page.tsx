@@ -222,7 +222,13 @@ export default function ClaimFoodScannerPage() {
   const startZxing = useCallback(async () => {
     if (zxingStartedRef.current) return;
     try {
-      const mod = await import("@zxing/library");
+      // Try the convenient browser wrapper first; if it's not installed, fall back to the library
+      let mod: unknown;
+      try {
+        mod = await import("@zxing/browser");
+      } catch {
+        mod = await import("@zxing/library");
+      }
   const m = mod as unknown as Record<string, unknown>;
   const Reader = (m.BrowserMultiFormatReader as unknown) || (m.BrowserQRCodeReader as unknown);
   const ReaderCtor = Reader as unknown as new (...args: unknown[]) => unknown;
