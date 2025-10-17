@@ -810,6 +810,26 @@ import authFetch from "../../../lib/api/client";
 import AdminHeader from "../../../components/AdminHeader";
 import { motion, AnimatePresence } from "framer-motion";
 
+// Cross-tab messaging for controller -> display
+type GachaMsg =
+  | { type: "hello" }
+  | { type: "state-request" }
+  | { type: "state"; payload: Record<string, unknown> }
+  | {
+      type: "command";
+      cmd:
+        | "draw"
+        | "refresh"
+        | "refresh-slot"
+        | "save"
+        | "set-winners-count"
+        | "set-gift-slot"
+        | "toggle-fullscreen"
+        | "audio";
+      payload?: Record<string, unknown>;
+    }
+  | { type: "goodbye" };
+
 /**
  * GachaPage — parchment + candlelight + AUDIO (Harry Potter vibe)
  *
@@ -1164,6 +1184,15 @@ export default function GachaPageMain() {
 
   const hostRef = useRef<HTMLDivElement | null>(null);
   const menuFirstButtonRef = useRef<HTMLButtonElement | null>(null);
+  // cross-tab channel + control window
+  const chanRef = useRef<BroadcastChannel | null>(null);
+  const controlWinRef = useRef<Window | null>(null);
+  const handlerRef = useRef<((m: GachaMsg) => Promise<void>) | null>(null);
+  const pickRandomRef = useRef<typeof pickRandom | null>(null);
+  const pickRandomSlotRef = useRef<typeof pickRandomSlot | null>(null);
+  const saveWinnerRef = useRef<typeof saveWinner | null>(null);
+  const enterFsRef = useRef<() => Promise<void> | null>(null);
+  const exitFsRef = useRef<() => Promise<void> | null>(null);
 
   // timers
   const prefixTimer = useRef<Array<number | null>>(Array(MAX_SLOTS).fill(null));
@@ -1228,6 +1257,118 @@ export default function GachaPageMain() {
   useEffect(() => {
     setIsMenuOpen(Boolean(isFullscreen));
   }, [isFullscreen]);
+
+  // publish condensed state for controllers
+  const postState = useCallback(() => {
+    chanRef.current?.postMessage({
+      type: "state",
+      payload: {
+        gifts,
+        winnersCount,
+        selectedGiftsArr,
+        previews,
+        muted,
+        volume,
+        isFullscreen,
+        loading,
+      },
+    } as GachaMsg);
+  }, [gifts, winnersCount, selectedGiftsArr, previews, muted, volume, isFullscreen, loading]);
+
+  function openControlTab() {
+    const w = window.open("/admin/gacha/control", "gacha-control");
+    controlWinRef.current = w;
+    w?.focus();
+    setTimeout(() => postState(), 500);
+  }
+
+  // keep a ref to the command handler so channel can call latest functions without
+  // adding heavy dependencies to the channel effect
+  useEffect(() => {
+    handlerRef.current = async (m: GachaMsg) => {
+      if (m.type !== "command") return;
+      try {
+        switch (m.cmd) {
+          case "draw":
+            await pickRandomRef.current?.(Boolean(m.payload?.spectacular));
+            break;
+          case "refresh":
+            await pickRandomRef.current?.(false);
+            break;
+          case "refresh-slot":
+            await pickRandomSlotRef.current?.(false, Number(m.payload?.slot ?? 0));
+            break;
+          case "save":
+            await saveWinnerRef.current?.();
+            break;
+          case "set-winners-count":
+            setWinnersCount(Number(m.payload?.count ?? 1));
+            break;
+          case "set-gift-slot": {
+            const { slot, giftId } = m.payload || {};
+            setSelectedGiftsArr((s) => {
+              const c = [...s];
+              c[Number(slot)] = Number(giftId);
+              return c;
+            });
+            break;
+          }
+          case "toggle-fullscreen": {
+            if (isFullscreen) await exitFsRef.current?.();
+            else await enterFsRef.current?.();
+            break;
+          }
+          case "audio": {
+            const { mute, volume: vol } = m.payload || {};
+            if (typeof mute === "boolean") {
+              setMuted(mute);
+              await audioKit.ensureCtx();
+              audioKit.setMuted(mute);
+            }
+            if (typeof vol === "number") {
+              const v = Math.max(0, Math.min(1, vol));
+              setVolume(v);
+              await audioKit.ensureCtx();
+              audioKit.setVolume(v);
+            }
+            break;
+          }
+          default:
+            break;
+        }
+      } catch (_) {
+        void _;
+      }
+      postState();
+    };
+  }, [isFullscreen, postState]);
+
+  // channel lifecycle
+  useEffect(() => {
+    const chan = new BroadcastChannel("gacha-control");
+    chanRef.current = chan;
+
+    const onMsg = (ev: MessageEvent) => {
+      const msg = ev.data as GachaMsg;
+      if (!msg) return;
+      if (msg.type === "state-request") postState();
+      else if (msg.type === "command") void handlerRef.current?.(msg);
+    };
+
+    chan.addEventListener("message", onMsg);
+    chan.postMessage({ type: "hello" } as GachaMsg);
+
+    return () => {
+      try {
+        chan.postMessage({ type: "goodbye" } as GachaMsg);
+      } catch {}
+      chan.removeEventListener("message", onMsg);
+      chan.close();
+      chanRef.current = null;
+    };
+  }, [postState]);
+
+  useEffect(() => { postState(); }, [postState]);
 
   async function enterFullscreen() {
     try {
@@ -1764,6 +1905,14 @@ export default function GachaPageMain() {
     }
   }
 
+  // Wire function refs so the BroadcastChannel handler can call the latest impls
+  // These assignments intentionally run each render to keep refs up-to-date.
+  pickRandomRef.current = pickRandom;
+  pickRandomSlotRef.current = pickRandomSlot;
+  saveWinnerRef.current = saveWinner;
+  enterFsRef.current = enterFullscreen;
+  exitFsRef.current = exitFullscreen;
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setIsMenuOpen(false);
@@ -1836,23 +1985,19 @@ export default function GachaPageMain() {
             {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
           </button>
           <button
-            onClick={() => setIsMenuOpen((v) => !v)}
+            onClick={() => openControlTab()}
             className="px-3 py-1.5 rounded-lg bg-[#7c1e1e] hover:bg-[#8f2525] border border-amber-900/40 text-[13px] font-semibold"
-            aria-expanded={isMenuOpen}
-            aria-controls="gacha-controls"
           >
-            {isMenuOpen ? "Close Menu" : "Open Menu"}
+            Open Control Tab
           </button>
         </AdminHeader>
       )}
 
       {isFullscreen && (
         <button
-          onClick={() => setIsMenuOpen((v) => !v)}
+          onClick={() => openControlTab()}
           className="fixed z-[10000] right-4 bottom-4 rounded-full p-3 bg-[rgba(36,24,19,0.75)] border border-amber-900/40 shadow-lg text-amber-100 opacity-85 hover:opacity-100 backdrop-blur-md"
-          aria-label={isMenuOpen ? "Close Menu" : "Open Menu"}
-          aria-expanded={isMenuOpen}
-          aria-controls="gacha-controls"
+          aria-label="Open Control Tab"
         >
           {isMenuOpen ? (
             <svg
