@@ -28,6 +28,12 @@ export default function ClaimFoodScannerPage() {
   // When the user explicitly stops the camera, set this to true so we don't
   // auto-restart (visibility / other handlers). Cleared when user starts.
   const userStopRef = useRef(false);
+  interface BarcodeDetectorLike {
+    detect(source: ImageBitmapSource): Promise<Array<Record<string, unknown>>>;
+  }
+  const detectorRef = useRef<BarcodeDetectorLike | null>(null);
+  // native BarcodeDetector refs (optional) — we'll initialize once below
+  const detectorReadyRef = useRef(false);
 
   const [scanning, setScanning] = useState(false);
   const [paused, setPaused] = useState(false); // logical pause without tearing down UI
@@ -201,16 +207,29 @@ export default function ClaimFoodScannerPage() {
     if (!scanning || paused) return;
     const video = videoRef.current;
     if (!video) return;
-
-    // jsQR (canvas) decoder path (we force this path)
+    // 1) Try native BarcodeDetector first (does 1D + QR)
+    if (detectorReadyRef.current && detectorRef.current) {
       try {
-        console.debug("scanner:using jsQR fallback");
-        if (!jsqrRef.current) {
-          const mod = await import("jsqr");
-          // prefer default export if present, otherwise module itself is the function
-          const maybe = (mod as { default?: JsQRFn }).default ?? (mod as unknown as JsQRFn);
-          jsqrRef.current = maybe;
+  const det = detectorRef.current as BarcodeDetectorLike;
+  const results = await det.detect(video as ImageBitmapSource);
+        if (results?.length && onDetectedRef.current) {
+          onDetectedRef.current(String(results[0].rawValue || ""));
+          return; // done for this tick
         }
+      } catch (e) {
+        // swallow and continue to QR fallback
+        console.debug("scanner:BarcodeDetector failed this tick", e);
+      }
+    }
+
+    // 2) QR-only fallback via jsQR
+    try {
+      console.debug("scanner:using jsQR fallback");
+      if (!jsqrRef.current) {
+        const mod = await import("jsqr");
+        const maybe = (mod as { default?: JsQRFn }).default ?? (mod as unknown as JsQRFn);
+        jsqrRef.current = maybe;
+      }
       const w = video.videoWidth || 640;
       const h = video.videoHeight || 480;
       if (!w || !h) return; // not ready yet
@@ -224,9 +243,9 @@ export default function ClaimFoodScannerPage() {
       const imgData = ctx.getImageData(0, 0, w, h);
       const result = jsqrRef.current(imgData.data, w, h);
       if (result?.data && onDetectedRef.current) onDetectedRef.current(String(result.data));
-      } catch {
-        // ignore
-      }
+    } catch {
+      // ignore
+    }
   }, [paused, scanning]);
 
   // --- Camera controls (defined after loop) ---
