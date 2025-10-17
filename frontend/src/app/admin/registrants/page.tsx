@@ -51,6 +51,7 @@ export default function RegistrantsAdminPage() {
     "all"
   );
   const [winFilter, setWinFilter] = useState<"all" | "yes" | "no">("all");
+  const [foodFilter, setFoodFilter] = useState<"all" | "yes" | "no">("all");
   const [createdFilter, setCreatedFilter] = useState("");
 
   // Sorting
@@ -163,6 +164,7 @@ export default function RegistrantsAdminPage() {
   const sentOk = ynOk(r.is_send_email as string | undefined, sentFilter);
   const verifiedOk = ynOk(r.is_verified as string | undefined, verifiedFilter);
   const winOk = ynOk(r.is_win as string | undefined, winFilter);
+  const foodOk = ynOk(r.is_claimed_food as string | undefined, foodFilter);
 
       return (
         idOk &&
@@ -174,7 +176,8 @@ export default function RegistrantsAdminPage() {
         createdOk &&
         sentOk &&
         verifiedOk &&
-        winOk
+        winOk &&
+        foodOk
       );
     });
   }, [
@@ -189,6 +192,7 @@ export default function RegistrantsAdminPage() {
     sentFilter,
     verifiedFilter,
     winFilter,
+    foodFilter,
   ]);
 
   // Sorting
@@ -707,8 +711,16 @@ export default function RegistrantsAdminPage() {
                     </select>
                   </th>
                   <th className="p-2">
-                    {/* Food claimed column (no filter yet) */}
-                    <div className="w-full p-2 text-xs text-slate-300">&nbsp;</div>
+                    <select
+                      value={foodFilter}
+                      onChange={(e) => setFoodFilter(e.target.value as "all" | "yes" | "no")}
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20"
+                      title="Food claimed status"
+                    >
+                      <option value="all">All</option>
+                      <option value="yes">Claimed</option>
+                      <option value="no">Not claimed</option>
+                    </select>
                   </th>
                   <th className="p-2">
                     <input
