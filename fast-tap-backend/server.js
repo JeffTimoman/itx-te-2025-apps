@@ -1095,6 +1095,8 @@ app.post('/api/admin/food-vouchers/:code/claim', async (req, res) => {
       }
       // Insert into registrant_claim_foods with a NULL food_id (operator can set later)
       await client.query('INSERT INTO registrant_claim_foods (registrant_id, food_id) VALUES ($1, $2)', [voucher.registrant_id, null]);
+      // Mark registrant as having claimed a food voucher
+      await client.query("UPDATE registrants SET is_claimed_food = 'Y' WHERE id = $1", [voucher.registrant_id]);
     }
 
     // Mark voucher claimed

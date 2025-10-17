@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS registrants (
   is_win CHAR(1) NOT NULL DEFAULT 'N',
   is_verified CHAR(1) NOT NULL DEFAULT 'N',
   is_send_email CHAR(1) NOT NULL DEFAULT 'N',
+  -- Whether the registrant has claimed a food voucher (Y/N)
+  is_claimed_food CHAR(1) NOT NULL DEFAULT 'N',
   bureau TEXT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

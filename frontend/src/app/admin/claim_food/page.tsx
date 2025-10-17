@@ -5,33 +5,34 @@ import AdminHeader from "../../../components/AdminHeader";
 import authFetch from "../../../lib/api/client";
 
 /**
- * ClaimFoodScannerPage — styled like RegistrantsAdminPage
- * Improvements:
- * - Uses AdminHeader & glassy UI
- * - Clean camera lifecycle with pause/resume, auto-pause on popup
- * - Single BarcodeDetector instance (if available), jsQR fallback (lazy import)
- * - Throttled scans, duplicate suppression with cooldown window
- * - Tab visibility handling (auto-pause when hidden)
- * - Robust status messaging + toasts-like chips
+ * ClaimFoodScannerPage — working Barcode + QR scanner
+ * Strategy:
+ * 1) Try native BarcodeDetector each tick (fast, low-CPU) if available
+ * 2) Otherwise start a continuous ZXing session (@zxing/browser) once
+ * Cleanup & pause/resume are handled correctly.
  */
 export default function ClaimFoodScannerPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const intervalRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  // ZXing reader (lazy-loaded) — replaces previous jsQR fallback
-  const zxingRef = useRef<unknown | null>(null);
-  // When the user explicitly stops the camera, set this to true so we don't
-  // auto-restart (visibility / other handlers). Cleared when user starts.
-  const userStopRef = useRef(false);
+
+  // ZXing (browser) controls + reader
+  const zxingReaderRef = useRef<any | null>(null);
+  const zxingControlsRef = useRef<{ stop: () => void } | null>(null);
+  const zxingStartedRef = useRef(false);
+
+  // Native detector
   interface BarcodeDetectorLike {
-    detect(source: ImageBitmapSource): Promise<Array<Record<string, unknown>>>;
+    detect(source: CanvasImageSource): Promise<Array<{ rawValue?: string }>>;
   }
   const detectorRef = useRef<BarcodeDetectorLike | null>(null);
-  // native BarcodeDetector refs (optional) — we'll initialize once below
   const detectorReadyRef = useRef(false);
 
+  // User action to prevent auto-restart after Stop
+  const userStopRef = useRef(false);
+
   const [scanning, setScanning] = useState(false);
-  const [paused, setPaused] = useState(false); // logical pause without tearing down UI
+  const [paused, setPaused] = useState(false);
   const [lastDetected, setLastDetected] = useState<string>("");
   const [cooldownUntil, setCooldownUntil] = useState<number>(0);
 
@@ -41,9 +42,8 @@ export default function ClaimFoodScannerPage() {
     claimed?: boolean;
   }>(null);
   const [statusMessage, setStatusMessage] = useState<string>("");
-  const [busy, setBusy] = useState(false); // prevents concurrent validate/claim
+  const [busy, setBusy] = useState(false);
 
-  // --- Utils ---
   const now = () => Date.now();
   const setStatus = (msg: string) => setStatusMessage(msg);
 
@@ -54,24 +54,22 @@ export default function ClaimFoodScannerPage() {
     }
   }
 
-
-
-  // Camera controls are defined after the scanner loop to avoid hook dependency ordering issues
-
-  // --- Backend ---
+  // -------- Backend helpers --------
   function getMsgFromUnknown(d: unknown): string | undefined {
-    if (!d || typeof d !== 'object') return undefined;
+    if (!d || typeof d !== "object") return undefined;
     const o = d as Record<string, unknown>;
-    if (typeof o.error === 'string') return o.error;
-    if (typeof o.message === 'string') return o.message;
+    if (typeof o.error === "string") return o.error;
+    if (typeof o.message === "string") return o.message;
     return undefined;
   }
 
-  function getVoucherFromUnknown(d: unknown): Record<string, unknown> | undefined {
-    if (!d || typeof d !== 'object') return undefined;
+  function getVoucherFromUnknown(
+    d: unknown
+  ): Record<string, unknown> | undefined {
+    if (!d || typeof d !== "object") return undefined;
     const o = d as Record<string, unknown>;
-    if (o.voucher && typeof o.voucher === 'object') return o.voucher as Record<string, unknown>;
-    // if object itself resembles voucher, return it
+    if (o.voucher && typeof o.voucher === "object")
+      return o.voucher as Record<string, unknown>;
     return o as Record<string, unknown>;
   }
 
@@ -81,34 +79,28 @@ export default function ClaimFoodScannerPage() {
     return String(val ?? "") === "Y";
   }
 
-  // pauseCamera is defined later with camera controls
-
   const validateCode = useCallback(async (code: string) => {
     try {
       const res = await authFetch(
         `/api/admin/food-vouchers/${encodeURIComponent(code)}`
       );
-        let data: unknown = null;
+      let data: unknown = null;
+      try {
+        data = await res.json();
+      } catch {
         try {
-          data = await res.json();
+          const txt = await res.text();
+          data = { message: txt };
         } catch {
-          // not JSON — try to read as text for debugging
-          try {
-            const txt = await res.text();
-            data = { message: txt };
-          } catch {
-            data = null;
-          }
+          data = null;
         }
+      }
       if (!res.ok)
         return {
           ok: false,
           error: getMsgFromUnknown(data) || `${res.status} ${res.statusText}`,
         } as const;
-      return {
-        ok: true,
-        voucher: (getVoucherFromUnknown(data) as Record<string, unknown>),
-      } as const;
+      return { ok: true, voucher: getVoucherFromUnknown(data)! } as const;
     } catch (err) {
       return { ok: false, error: String(err) } as const;
     }
@@ -146,24 +138,20 @@ export default function ClaimFoodScannerPage() {
     }
   }, []);
 
-  // pauseRef will be assigned to the real pauseCamera after camera controls
+  // Pause ref for use inside onDetected
   const pauseRef = useRef<() => void>(() => {});
 
-  // onDetected is stored in a ref so the scanner loop can call it without
-  // creating circular hook dependencies. The function itself can use
-  // stable callbacks like validateCode and will call pauseRef.current()
   const onDetectedRef = useRef<((raw: string) => Promise<void>) | null>(null);
   onDetectedRef.current = async (raw: string) => {
-    console.debug("scanner:onDetectedRef", raw);
     const code = String(raw || "").trim();
     if (!code) return;
-    // suppress duplicates & rapid fire
     const t = now();
     if (code === lastDetected && t < cooldownUntil) return;
+
     setLastDetected(code);
     setCooldownUntil(t + 1500);
 
-    if (busy) return; // guard
+    if (busy) return;
     setBusy(true);
     setStatus(`Detected: ${code} — validating…`);
     const v = await validateCode(code);
@@ -171,111 +159,174 @@ export default function ClaimFoodScannerPage() {
 
     if (!v.ok) {
       setStatus(`Invalid voucher: ${v.error || "not found"}`);
-      return; // loop continues
+      return;
     }
-    // Open popup and pause camera until decision. We both
-    // (a) perform an immediate inline pause to avoid races where pauseRef
-    //     hasn't been assigned yet (effects run after render), and
-    // (b) call pauseRef.current() for the canonical implementation.
+
+    // Open popup and pause
     setPopup({ code, voucher: v.voucher });
-    // immediate inline pause
+    // inline pause
     try {
       clearTimer();
       const s = streamRef.current;
       if (s) s.getVideoTracks().forEach((t) => (t.enabled = false));
+      // stop ZXing loop while paused
+      stopZxing();
       setPaused(true);
       setStatus("Paused");
-    } catch {
-      // ignore
-    }
-    // canonical pause (if present)
+    } catch {}
+    // canonical pause
     try {
       pauseRef.current();
-    } catch {
-      // ignore
-    }
+    } catch {}
   };
 
-  // --- Scanner loop (throttled) ---
+  // ---------- Native BarcodeDetector init (once) ----------
+  useEffect(() => {
+    (async () => {
+      try {
+        if (typeof window !== "undefined" && "BarcodeDetector" in window) {
+          // @ts-ignore
+          const supported =
+            await window.BarcodeDetector.getSupportedFormats?.().catch(
+              () => []
+            );
+          const wanted = [
+            "code_128",
+            "code_39",
+            "ean_13",
+            "ean_8",
+            "upc_a",
+            "upc_e",
+            "itf",
+            "codabar",
+            "qr_code",
+            "pdf417",
+            "aztec",
+            "data_matrix",
+          ];
+          const formats = supported?.length
+            ? wanted.filter((f) => supported.includes(f))
+            : wanted;
+          // @ts-ignore
+          detectorRef.current = new window.BarcodeDetector({ formats });
+          detectorReadyRef.current = true;
+          console.debug("BarcodeDetector ready with formats:", formats);
+        } else {
+          console.debug(
+            "BarcodeDetector not available; will use ZXing fallback."
+          );
+        }
+      } catch (e) {
+        console.debug(
+          "BarcodeDetector init failed; will use ZXing fallback.",
+          e
+        );
+        detectorRef.current = null;
+        detectorReadyRef.current = false;
+      }
+    })();
+  }, []);
+
+  // ---------- ZXing start/stop helpers (continuous session) ----------
+  const startZxing = useCallback(async () => {
+    if (zxingStartedRef.current) return;
+    try {
+      const mod = await import("@zxing/browser"); // <- correct package for browser usage
+      const Reader = mod.BrowserMultiFormatReader;
+      const reader = new Reader(undefined, 250); // 250ms between attempts
+      zxingReaderRef.current = reader;
+
+      // Start continuous decode from the *existing* video element/stream
+      // decodeFromVideoDevice(null, video, callback) creates a loop and returns controls.stop()
+      const controls = await reader.decodeFromVideoDevice(
+        null,
+        videoRef.current as HTMLVideoElement,
+        (result: any, err: any) => {
+          if (result?.getText) {
+            const text = result.getText();
+            onDetectedRef.current?.(String(text));
+          } else if (result?.text) {
+            onDetectedRef.current?.(String(result.text));
+          }
+          // ignore NotFoundException errors; they just mean "no code this frame"
+        }
+      );
+
+      zxingControlsRef.current = controls;
+      zxingStartedRef.current = true;
+      console.debug("ZXing continuous session started");
+    } catch (e) {
+      console.debug("ZXing start failed", e);
+      // If ZXing cannot start, keep silent; native detector may still work.
+    }
+  }, []);
+
+  const stopZxing = useCallback(() => {
+    try {
+      zxingControlsRef.current?.stop();
+    } catch {}
+    try {
+      zxingReaderRef.current?.reset?.();
+    } catch {}
+    zxingControlsRef.current = null;
+    zxingReaderRef.current = null;
+    zxingStartedRef.current = false;
+  }, []);
+
+  // ---------- Scan loop (native detector path only) ----------
   const loop = useCallback(async () => {
-    console.debug("scanner:loop entry", { scanning, paused });
     if (!scanning || paused) return;
     const video = videoRef.current;
     if (!video) return;
-    // 1) Try native BarcodeDetector first (does 1D + QR)
+
+    // Try native detector first (cheap & fast)
     if (detectorReadyRef.current && detectorRef.current) {
       try {
-  const det = detectorRef.current as BarcodeDetectorLike;
-  const results = await det.detect(video as ImageBitmapSource);
+        const results = await detectorRef.current.detect(video);
         if (results?.length && onDetectedRef.current) {
-          onDetectedRef.current(String(results[0].rawValue || ""));
-          return; // done for this tick
+          const best = results[0];
+          onDetectedRef.current(String(best.rawValue || ""));
+          return;
         }
       } catch (e) {
-        // swallow and continue to QR fallback
-        console.debug("scanner:BarcodeDetector failed this tick", e);
+        // ignore this tick
+      }
+    } else {
+      // If native detector isn't available, ensure ZXing continuous session is running
+      if (!zxingStartedRef.current) {
+        startZxing();
       }
     }
+  }, [paused, scanning, startZxing]);
 
-    // 2) Fallback via @zxing/library (lazy import)
-    try {
-      console.debug("scanner:using ZXing fallback");
-      if (!zxingRef.current) {
-        const mod = await import("@zxing/library");
-        // Prefer a multi-format reader, fallback to QR reader if present
-        const Reader = (mod && (mod.BrowserMultiFormatReader || mod.BrowserQRCodeReader)) as unknown as {
-          new (...args: unknown[]): unknown;
-        };
-        zxingRef.current = new Reader();
-      }
-      const reader = zxingRef.current as unknown as {
-        decodeFromVideoElement?: (video: HTMLVideoElement) => Promise<{ getText?: () => string; text?: string; result?: string }> | { getText?: () => string; text?: string; result?: string };
-        reset?: () => void;
-      };
-      if (reader && typeof reader.decodeFromVideoElement === "function") {
-        // decodeFromVideoElement resolves once a code is found
-        const res = await reader.decodeFromVideoElement(video as HTMLVideoElement);
-        const text = res?.getText ? res.getText() : (res?.text ?? (res?.result ?? undefined));
-        if (text && onDetectedRef.current) {
-          try {
-            // stop any internal continuous decode loop the reader may have
-            reader.reset?.();
-          } catch {}
-          onDetectedRef.current(String(text));
-          return; // done for this tick
-        }
-      }
-    } catch (e) {
-      console.debug("scanner:ZXing failed this tick", e);
-      try {
-        (zxingRef.current as { reset?: () => void } | null)?.reset?.();
-      } catch {}
-    }
-  }, [paused, scanning]);
-
-  // --- Camera controls (defined after loop) ---
+  // ---------- Camera controls ----------
   const startCamera = useCallback(async () => {
-    if (userStopRef.current) return; // respect user stop
-    console.debug("scanner:startCamera (attempt)");
+    if (userStopRef.current) return;
     setStatus("Requesting camera permission…");
     try {
-      const constraints = {
-        video: { facingMode: { ideal: "environment" } },
+      const constraints: MediaStreamConstraints = {
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
         audio: false,
-      } as MediaStreamConstraints;
+      };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play().catch(() => {});
       }
+
       setScanning(true);
       setPaused(false);
       setStatus("Scanning…");
-  console.debug("scanner:camera started", { video: !!videoRef.current, stream: !!streamRef.current });
-      // start the scan loop
+
       clearTimer();
-      intervalRef.current = window.setInterval(loop, 500);
+      // Kick off the native-detector tick; if not available, loop will start ZXing once
+      intervalRef.current = window.setInterval(loop, 300);
     } catch (err) {
       console.error("Camera start failed", err);
       setStatus("Camera permission denied or unavailable");
@@ -285,8 +336,8 @@ export default function ClaimFoodScannerPage() {
   }, [loop]);
 
   const stopCamera = useCallback(() => {
-    console.debug("scanner:stopCamera");
     clearTimer();
+    stopZxing();
     try {
       const s = streamRef.current;
       if (s) s.getTracks().forEach((t) => t.stop());
@@ -298,51 +349,44 @@ export default function ClaimFoodScannerPage() {
     setScanning(false);
     setPaused(false);
     setStatus("Stopped");
-  }, []);
+  }, [stopZxing]);
 
   const pauseCamera = useCallback(() => {
-    // Pause scanning loop & mute camera without fully tearing down
     clearTimer();
+    stopZxing();
     const s = streamRef.current;
     if (s) s.getVideoTracks().forEach((t) => (t.enabled = false));
     setPaused(true);
     setStatus("Paused");
-  }, []);
+  }, [stopZxing]);
 
   const resumeCamera = useCallback(() => {
     const s = streamRef.current;
     if (!s) {
-      // If stream is gone (e.g., tab suspended), restart fully
       if (!userStopRef.current) startCamera();
       return;
     }
     s.getVideoTracks().forEach((t) => (t.enabled = true));
     setPaused(false);
     setStatus("Scanning…");
-    // resume loop
     clearTimer();
-    intervalRef.current = window.setInterval(loop, 500);
+    intervalRef.current = window.setInterval(loop, 300);
+    // If native detector isn’t available, loop will ensure ZXing is running
   }, [startCamera, loop]);
 
-  // ensure pauseRef.current points to the active pauseCamera implementation
   useEffect(() => {
     pauseRef.current = pauseCamera;
   }, [pauseCamera]);
 
-  // spin was removed — we directly manage interval via clearTimer + setInterval
-
-  // --- Lifecycle ---
-  // start camera once on mount; avoid including startCamera/stopCamera in deps
-  // because their identities change when loop/paused/scanning change which
-  // would cause automatic restarts. We want mount-only behavior here.
+  // Mount / unmount
   useEffect(() => {
     startCamera();
     return () => stopCamera();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Tab visibility auto-pause/resume
   useEffect(() => {
-    // auto-pause when tab hidden; resume when visible
     function handleVis() {
       if (document.hidden) {
         if (scanning && !paused) pauseCamera();
@@ -354,7 +398,7 @@ export default function ClaimFoodScannerPage() {
     return () => document.removeEventListener("visibilitychange", handleVis);
   }, [pauseCamera, resumeCamera, scanning, paused, popup]);
 
-  // --- Popup actions ---
+  // ---------- Popup actions ----------
   const onCancel = useCallback(() => {
     setPopup(null);
     setStatus("Scanning…");
@@ -370,12 +414,10 @@ export default function ClaimFoodScannerPage() {
     setBusy(false);
     if (!r.ok) {
       setStatus(`Claim failed: ${r.error || "error"}`);
-      // stay paused but allow retry/close
       return;
     }
     setStatus("Claim successful 🎉");
     setPopup((prev) => (prev ? { ...prev, claimed: true } : prev));
-    // After a short moment, close & resume
     setTimeout(() => {
       setPopup(null);
       setLastDetected("");
@@ -384,7 +426,7 @@ export default function ClaimFoodScannerPage() {
     }, 900);
   }, [popup, busy, resumeCamera, scanning, claimCode]);
 
-  // --- UI ---
+  // ---------- UI ----------
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100">
       <AdminHeader title="Food Voucher Scanner">
