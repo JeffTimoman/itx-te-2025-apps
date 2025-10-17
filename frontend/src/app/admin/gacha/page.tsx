@@ -1,6 +1,11 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import authFetch from "../../../lib/api/client";
 import AdminHeader from "../../../components/AdminHeader";
 import { motion, AnimatePresence } from "framer-motion";
@@ -167,17 +172,11 @@ class AudioKit {
     o.frequency.value = 220;
     g.gain.setValueAtTime(0.0001, this.ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.3, this.ctx.currentTime + 0.05);
-    g.gain.exponentialRampToValueAtTime(
-      0.0001,
-      this.ctx.currentTime + duration
-    );
+    g.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + duration);
     o.connect(g);
     g.connect(this.lowpass!);
     o.start();
-    o.frequency.exponentialRampToValueAtTime(
-      60,
-      this.ctx.currentTime + duration
-    );
+    o.frequency.exponentialRampToValueAtTime(60, this.ctx.currentTime + duration);
     o.stop(this.ctx.currentTime + duration + 0.05);
   }
 
@@ -266,14 +265,8 @@ class AudioKit {
           o.type = "sine";
           o.frequency.value = 120;
           eg.gain.setValueAtTime(0.0001, this.ctx.currentTime);
-          eg.gain.exponentialRampToValueAtTime(
-            0.6,
-            this.ctx.currentTime + 0.01
-          );
-          eg.gain.exponentialRampToValueAtTime(
-            0.0001,
-            this.ctx.currentTime + 0.25
-          );
+          eg.gain.exponentialRampToValueAtTime(0.6, this.ctx.currentTime + 0.01);
+          eg.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + 0.25);
           o.connect(eg);
           eg.connect(g);
           o.start();
@@ -338,12 +331,10 @@ export default function GachaPageMain() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [stage, setStage] = useState<
-    "idle" | "drawing" | "reveal" | "refresh-reveal"
-  >("idle");
+  const [stage, setStage] = useState<"idle" | "drawing" | "reveal" | "refresh-reveal">("idle");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [, setRevealDone] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  // controls removed from display — controller lives at /admin/gacha/control
 
   // NEW: per-slot preview name visibility (externalizable)
   const [showPreviewNameArr, setShowPreviewNameArr] = useState<boolean[]>(
@@ -369,7 +360,7 @@ export default function GachaPageMain() {
   );
 
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const menuFirstButtonRef = useRef<HTMLButtonElement | null>(null);
+  // menuFirstButtonRef removed
 
   // cross-tab
   const chanRef = useRef<BroadcastChannel | null>(null);
@@ -386,9 +377,7 @@ export default function GachaPageMain() {
   const suffixTimer = useRef<Array<number | null>>(Array(MAX_SLOTS).fill(null));
 
   // confetti
-  const confettiInstanceRef = useRef<
-    import("canvas-confetti").ConfettiFn | null
-  >(null);
+  const confettiInstanceRef = useRef<import("canvas-confetti").ConfettiFn | null>(null);
   const confettiCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const toMsg = (e: unknown) => {
@@ -410,16 +399,15 @@ export default function GachaPageMain() {
       const res = await authFetch("/api/admin/gifts/available");
       if (!res.ok) throw await res.json();
       const data = await res.json();
-      const sorted = (data || []).slice().sort((a: GiftAvail, b: GiftAvail) =>
-        String(a.name || "").localeCompare(String(b.name || ""), undefined, {
-          sensitivity: "base",
-        })
-      );
+      const sorted = (data || [])
+        .slice()
+        .sort((a: GiftAvail, b: GiftAvail) =>
+          String(a.name || "").localeCompare(String(b.name || ""), undefined, {
+            sensitivity: "base",
+          })
+        );
       setGifts(sorted);
-      if (
-        (!selectedGiftsArr || selectedGiftsArr.length === 0) &&
-        sorted.length
-      ) {
+      if ((!selectedGiftsArr || selectedGiftsArr.length === 0) && sorted.length) {
         const first = sorted[0].id;
         setSelectedGiftsArr(Array(MAX_SLOTS).fill(first));
       }
@@ -442,7 +430,7 @@ export default function GachaPageMain() {
   }, []);
 
   useEffect(() => {
-    setIsMenuOpen(Boolean(isFullscreen));
+    // display no longer toggles an in-page menu when fullscreen
   }, [isFullscreen]);
 
   // —— State publisher: now includes showPreviewNameArr
@@ -493,10 +481,7 @@ export default function GachaPageMain() {
             await pickRandomRef.current?.(false);
             break;
           case "refresh-slot":
-            await pickRandomSlotRef.current?.(
-              false,
-              Number(m.payload?.slot ?? 0)
-            );
+            await pickRandomSlotRef.current?.(false, Number(m.payload?.slot ?? 0));
             break;
           case "save":
             await saveWinnerRef.current?.();
@@ -901,7 +886,7 @@ export default function GachaPageMain() {
     setLoading(true);
     setStage("drawing");
     setRevealDone(false);
-    setIsMenuOpen(false);
+  // in-display menu removed; control lives in control tab
 
     try {
       // Check eligible registrants
@@ -960,9 +945,10 @@ export default function GachaPageMain() {
         let found: PreviewWinner | null = null;
         for (let a = 0; a < attempts; a++) {
           const gid = selection[i];
-          const res = await authFetch(`/api/admin/gifts/${gid}/random-winner`, {
-            method: "POST",
-          });
+          const res = await authFetch(
+            `/api/admin/gifts/${gid}/random-winner`,
+            { method: "POST" }
+          );
           if (!res.ok) continue;
           const data = (await res.json()) as PreviewWinner;
           if (!data) continue;
@@ -1032,7 +1018,7 @@ export default function GachaPageMain() {
     setLoading(true);
     setStage("drawing");
     setRevealDone(false);
-    setIsMenuOpen(false);
+  // in-display menu removed; control lives in control tab
 
     try {
       const regRes = await authFetch(`/api/admin/registrants`);
@@ -1049,11 +1035,7 @@ export default function GachaPageMain() {
         if (p && idx !== slot) exclude.add(p.id);
       });
       const eligible = (regs || []).filter(
-        (r) =>
-          r.is_verified === "Y" &&
-          r.is_win === "N" &&
-          r.gacha_code &&
-          !exclude.has(r.id)
+        (r) => r.is_verified === "Y" && r.is_win === "N" && r.gacha_code && !exclude.has(r.id)
       );
       if ((eligible || []).length < 1) {
         setError(`Not enough eligible registrants to refresh this slot`);
@@ -1082,9 +1064,10 @@ export default function GachaPageMain() {
       const attempts = 10;
       let found: PreviewWinner | null = null;
       for (let a = 0; a < attempts; a++) {
-        const res = await authFetch(`/api/admin/gifts/${gid}/random-winner`, {
-          method: "POST",
-        });
+        const res = await authFetch(
+          `/api/admin/gifts/${gid}/random-winner`,
+          { method: "POST" }
+        );
         if (!res.ok) continue;
         const data = (await res.json()) as PreviewWinner;
         if (!data) continue;
@@ -1172,34 +1155,19 @@ export default function GachaPageMain() {
   }
 
   // Keep refs updated
-  (
-    pickRandomRef as React.MutableRefObject<
-      ((spectacular: boolean) => Promise<void>) | null
-    >
-  ).current = pickRandom;
-  (
-    pickRandomSlotRef as React.MutableRefObject<
-      ((spectacular: boolean, slot: number) => Promise<void>) | null
-    >
-  ).current = pickRandomSlot;
-  (
-    saveWinnerRef as React.MutableRefObject<(() => Promise<void>) | null>
-  ).current = saveWinner;
+  (pickRandomRef as React.MutableRefObject<((spectacular: boolean) => Promise<void>) | null>).current =
+    pickRandom;
+  (pickRandomSlotRef as React.MutableRefObject<
+    ((spectacular: boolean, slot: number) => Promise<void>) | null
+  >).current = pickRandomSlot;
+  (saveWinnerRef as React.MutableRefObject<(() => Promise<void>) | null>).current =
+    saveWinner;
   (enterFsRef as React.MutableRefObject<(() => Promise<void>) | null>).current =
     enterFullscreen;
   (exitFsRef as React.MutableRefObject<(() => Promise<void>) | null>).current =
     exitFullscreen;
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsMenuOpen(false);
-    };
-    if (isMenuOpen) {
-      document.addEventListener("keydown", onKey);
-      setTimeout(() => menuFirstButtonRef.current?.focus(), 0);
-    }
-    return () => document.removeEventListener("keydown", onKey);
-  }, [isMenuOpen]);
+  // in-display menu removed; no key handling required here
 
   useEffect(() => {
     try {
@@ -1214,9 +1182,6 @@ export default function GachaPageMain() {
   // Theming tokens
   const parchmentBg =
     "bg-[radial-gradient(1400px_800px_at_50%_-10%,rgba(244,228,177,0.2),transparent),radial-gradient(900px_520px_at_30%_120%,rgba(107,46,46,0.18),transparent)]";
-  const frameBorder = "border-[3px] border-[#7c1e1e]/50 rounded-[22px]";
-  const panelGlass =
-    "bg-[rgba(36,24,19,0.72)] border border-amber-900/30 backdrop-blur-md";
 
   return (
     <div

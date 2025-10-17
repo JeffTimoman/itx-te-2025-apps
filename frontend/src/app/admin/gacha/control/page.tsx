@@ -63,14 +63,17 @@ export default function GachaControlPage() {
     () => state.selectedGiftsArr ?? [],
     [state.selectedGiftsArr]
   );
-  const previews = useMemo(() => state.previews ?? [], [state.previews]);
+  const previews = useMemo(
+    () => state.previews ?? [],
+    [state.previews]
+  );
   const nameShown = useMemo(
     () => state.showPreviewNameArr ?? [],
     [state.showPreviewNameArr]
   );
 
   const remain = (g?: GiftAvail) =>
-    Math.max(0, (g?.quantity ?? 0) - (g?.awarded ?? 0));
+    Math.max(0, ((g?.quantity ?? 0) - (g?.awarded ?? 0)));
 
   const canDraw = useMemo(() => {
     if (state.loading) return false;
@@ -79,7 +82,7 @@ export default function GachaControlPage() {
     const sel = selectedGiftsArr.slice(0, slots);
     if (sel.length < slots) return false;
     for (let i = 0; i < sel.length; i++) {
-      const g = gifts.find((x) => x.id === sel[i]);
+      const g = gifts.find(x => x.id === sel[i]);
       if (!g || remain(g) <= 0) return false;
     }
     return true;
@@ -117,9 +120,7 @@ export default function GachaControlPage() {
     chan.postMessage({ type: "state-request" } as ControlMsg);
 
     return () => {
-      try {
-        chan.postMessage({ type: "goodbye" } as ControlMsg);
-      } catch {}
+      try { chan.postMessage({ type: "goodbye" } as ControlMsg); } catch {}
       chan.removeEventListener("message", onMsg);
       chan.close();
       chanRef.current = null;
@@ -127,9 +128,7 @@ export default function GachaControlPage() {
   }, []);
 
   const send = (msg: ControlMsg) => {
-    try {
-      chanRef.current?.postMessage(msg);
-    } catch {}
+    try { chanRef.current?.postMessage(msg); } catch {}
   };
 
   // Commands
@@ -164,23 +163,17 @@ export default function GachaControlPage() {
     send({
       type: "command",
       cmd: "reveal-names",
-      payload: { slot }, // display will toggle if show is undefined
+      payload: { slot } // display will toggle if show is undefined
     });
 
   // UI
   return (
     <div className="min-h-screen p-6 bg-[#1b1410] text-amber-100">
       <header className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold font-[Cinzel,serif]">
-          Gacha Control
-        </h1>
+        <h1 className="text-xl font-semibold font-[Cinzel,serif]">Gacha Control</h1>
         <div className="text-sm">
           Status:&nbsp;
-          <span
-            className={
-              connected ? "text-emerald-300" : "text-amber-400 opacity-80"
-            }
-          >
+          <span className={connected ? "text-emerald-300" : "text-amber-400 opacity-80"}>
             {connected ? "Connected" : "Unavailable"}
           </span>
         </div>
@@ -191,22 +184,18 @@ export default function GachaControlPage() {
         <button
           onClick={() => draw(true)}
           disabled={!canDraw}
-          className={`px-3 py-2 rounded border text-sm ${
-            canDraw
+          className={`px-3 py-2 rounded border text-sm ${canDraw
               ? "bg-[#7c1e1e] hover:bg-[#8f2525] border-amber-900/40"
-              : "bg-white/5 border-white/10 opacity-60 cursor-not-allowed"
-          }`}
+              : "bg-white/5 border-white/10 opacity-60 cursor-not-allowed"}`}
         >
           Draw (Spectacular)
         </button>
         <button
           onClick={() => draw(false)}
           disabled={!canDraw}
-          className={`px-3 py-2 rounded border text-sm ${
-            canDraw
+          className={`px-3 py-2 rounded border text-sm ${canDraw
               ? "bg-amber-950/30 hover:bg-amber-950/40 border-amber-900/40"
-              : "bg-white/5 border-white/10 opacity-60 cursor-not-allowed"
-          }`}
+              : "bg-white/5 border-white/10 opacity-60 cursor-not-allowed"}`}
         >
           Draw (Quick)
         </button>
@@ -219,11 +208,9 @@ export default function GachaControlPage() {
         <button
           onClick={save}
           disabled={!canSave}
-          className={`px-3 py-2 rounded border text-sm ${
-            canSave
+          className={`px-3 py-2 rounded border text-sm ${canSave
               ? "bg-emerald-600 hover:bg-emerald-600/90 border-emerald-700/40"
-              : "bg-white/5 border-white/10 opacity-60 cursor-not-allowed"
-          }`}
+              : "bg-white/5 border-white/10 opacity-60 cursor-not-allowed"}`}
         >
           Save Winners
         </button>
@@ -266,9 +253,7 @@ export default function GachaControlPage() {
               key={n}
               onClick={() => setWinners(n)}
               className={`px-2 py-1 rounded text-sm ${
-                winnersCount === n
-                  ? "bg-amber-700 text-amber-100"
-                  : "bg-amber-950/20"
+                winnersCount === n ? "bg-amber-700 text-amber-100" : "bg-amber-950/20"
               }`}
             >
               {n}
@@ -326,9 +311,7 @@ export default function GachaControlPage() {
                   </button>
 
                   <div className="tabular-nums text-amber-200/80 text-xs">
-                    {current
-                      ? `${current.awarded}/${current.quantity}`
-                      : "\u00A0"}
+                    {current ? `${current.awarded}/${current.quantity}` : "\u00A0"}
                   </div>
                 </div>
               </div>
@@ -401,7 +384,7 @@ export default function GachaControlPage() {
                 <span className="font-mono">{code}</span>
               </div>
               <div className="text-amber-100/90 font-medium">
-                {nameShown[i] ? p?.name ?? "" : ""}
+                {nameShown[i] ? (p?.name ?? "") : ""}
               </div>
             </div>
           );
