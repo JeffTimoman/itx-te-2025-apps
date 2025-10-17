@@ -33,6 +33,9 @@ export default function ClaimFoodScannerPage() {
   ) => { data: string } | null;
 
   const jsqrRef = useRef<JsQRFn | null>(null); // jsQR module
+  // When the user explicitly stops the camera, set this to true so we don't
+  // auto-restart (visibility / other handlers). Cleared when user starts.
+  const userStopRef = useRef(false);
 
   const [scanning, setScanning] = useState(false);
   const [paused, setPaused] = useState(false); // logical pause without tearing down UI
@@ -267,6 +270,7 @@ export default function ClaimFoodScannerPage() {
 
   // --- Camera controls (defined after loop) ---
   const startCamera = useCallback(async () => {
+    if (userStopRef.current) return; // respect user stop
     setStatus("Requesting camera permission…");
     try {
       const constraints = {
@@ -321,7 +325,7 @@ export default function ClaimFoodScannerPage() {
     const s = streamRef.current;
     if (!s) {
       // If stream is gone (e.g., tab suspended), restart fully
-      startCamera();
+      if (!userStopRef.current) startCamera();
       return;
     }
     s.getVideoTracks().forEach((t) => (t.enabled = true));
@@ -340,10 +344,14 @@ export default function ClaimFoodScannerPage() {
   // spin was removed — we directly manage interval via clearTimer + setInterval
 
   // --- Lifecycle ---
+  // start camera once on mount; avoid including startCamera/stopCamera in deps
+  // because their identities change when loop/paused/scanning change which
+  // would cause automatic restarts. We want mount-only behavior here.
   useEffect(() => {
     startCamera();
     return () => stopCamera();
-  }, [startCamera, stopCamera]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     // auto-pause when tab hidden; resume when visible
@@ -393,7 +401,15 @@ export default function ClaimFoodScannerPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-slate-100">
       <AdminHeader title="Food Voucher Scanner">
         <button
-          onClick={() => (scanning ? stopCamera() : startCamera())}
+          onClick={() => {
+            if (scanning) {
+              userStopRef.current = true;
+              stopCamera();
+            } else {
+              userStopRef.current = false;
+              startCamera();
+            }
+          }}
           className="px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-xs hover:bg-white/15"
         >
           {scanning ? "Stop" : "Start"}
