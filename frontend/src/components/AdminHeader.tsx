@@ -123,13 +123,13 @@ export default function AdminHeader({
                   >
                     Gacha
                   </Link>
-                  <Link
+                  {/* <Link
                     href="/admin/gacha2"
                     onClick={() => setOpen(false)}
                     className="px-3 py-2 text-sm hover:bg-white/10"
                   >
                     Gacha 2 - Harry Potter Ver
-                  </Link>
+                  </Link> */}
                   <Link
                     href="/admin/assign_gift"
                     onClick={() => setOpen(false)}
@@ -157,6 +157,27 @@ export default function AdminHeader({
                     className="px-3 py-2 text-sm hover:bg-white/10"
                   >
                     Winners
+                  </Link>
+                  <Link
+                    href="/admin/claim_food"
+                    onClick={() => setOpen(false)}
+                    className="px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    Claim Food
+                  </Link>
+                  <Link
+                    href="/admin/team"
+                    onClick={() => setOpen(false)}
+                    className="px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    Teams
+                  </Link>
+                  <Link
+                    href="/admin/assign_score"
+                    onClick={() => setOpen(false)}
+                    className="px-3 py-2 text-sm hover:bg-white/10"
+                  >
+                    Add Score
                   </Link>
                 </nav>
               </div>

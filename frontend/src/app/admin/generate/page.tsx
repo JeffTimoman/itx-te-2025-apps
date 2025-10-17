@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import AdminHeader from "../../../components/AdminHeader";
 
 /**
@@ -18,6 +18,7 @@ export default function GeneratePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [size, setSize] = useState<number>(384);
+  const [autoRefresh, setAutoRefresh] = useState<boolean>(false);
 
   const BACKEND = useMemo(() => process.env.NEXT_PUBLIC_BACKEND_URL || "", []);
 
@@ -30,7 +31,7 @@ export default function GeneratePage() {
     return ""; // SSR-safe fallback; link will appear once mounted
   }
 
-  async function createCode() {
+  const createCode = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -52,13 +53,22 @@ export default function GeneratePage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [BACKEND]);
 
   useEffect(() => {
     // auto-generate on first load
     createCode();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [createCode]);
+
+  // Auto-refresh effect: when enabled, regenerate every 2 seconds
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const id = setInterval(() => {
+      // avoid overlapping calls
+      if (!loading) void createCode();
+    }, 3000);
+    return () => clearInterval(id);
+  }, [autoRefresh, loading, createCode]);
 
   function qrSrc(url: string, px: number) {
     const base = BACKEND.replace(/\/$/, "");
@@ -131,6 +141,15 @@ export default function GeneratePage() {
                 </option>
               ))}
             </select>
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={autoRefresh}
+                onChange={(e) => setAutoRefresh(e.target.checked)}
+                className="accent-indigo-400"
+              />
+              Auto refresh (3s)
+            </label>
           </div>
           <div className="flex flex-wrap gap-2">
             <button

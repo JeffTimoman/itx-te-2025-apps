@@ -51,6 +51,7 @@ export default function RegistrantsAdminPage() {
     "all"
   );
   const [winFilter, setWinFilter] = useState<"all" | "yes" | "no">("all");
+  const [foodFilter, setFoodFilter] = useState<"all" | "yes" | "no">("all");
   const [createdFilter, setCreatedFilter] = useState("");
 
   // Sorting
@@ -160,9 +161,10 @@ export default function RegistrantsAdminPage() {
           .toLowerCase()
           .includes(crf);
 
-      const sentOk = ynOk(r.is_send_email as any, sentFilter);
-      const verifiedOk = ynOk(r.is_verified as any, verifiedFilter);
-      const winOk = ynOk(r.is_win as any, winFilter);
+  const sentOk = ynOk(r.is_send_email as string | undefined, sentFilter);
+  const verifiedOk = ynOk(r.is_verified as string | undefined, verifiedFilter);
+  const winOk = ynOk(r.is_win as string | undefined, winFilter);
+  const foodOk = ynOk(r.is_claimed_food as string | undefined, foodFilter);
 
       return (
         idOk &&
@@ -174,7 +176,8 @@ export default function RegistrantsAdminPage() {
         createdOk &&
         sentOk &&
         verifiedOk &&
-        winOk
+        winOk &&
+        foodOk
       );
     });
   }, [
@@ -189,6 +192,7 @@ export default function RegistrantsAdminPage() {
     sentFilter,
     verifiedFilter,
     winFilter,
+    foodFilter,
   ]);
 
   // Sorting
@@ -207,7 +211,7 @@ export default function RegistrantsAdminPage() {
 
     copy.sort((a, b) => {
       let res = 0;
-      if (sortKey === "id") res = cmpNum(a.id as any, b.id as any);
+  if (sortKey === "id") res = cmpNum(a.id as number | null, b.id as number | null);
       else if (sortKey === "name") res = cmpStr(a.name, b.name);
       else if (sortKey === "gifts")
         res = (a.gifts?.length ?? 0) - (b.gifts?.length ?? 0);
@@ -268,6 +272,7 @@ export default function RegistrantsAdminPage() {
       "is_send_email",
       "is_verified",
       "is_win",
+      "is_claimed_food",
       "created_at",
     ];
     const rows = sorted.map((r) => [
@@ -282,6 +287,7 @@ export default function RegistrantsAdminPage() {
       r.is_send_email || "",
       r.is_verified || "",
       r.is_win || "",
+      r.is_claimed_food || "",
       r.created_at || "",
     ]);
     const csv = [headers.join(","), ...rows.map((row) => row.join(","))].join(
@@ -597,6 +603,9 @@ export default function RegistrantsAdminPage() {
                   >
                     Win
                   </Th>
+                  <Th>
+                    Food
+                  </Th>
                   <Th
                     sortable
                     active={sortKey === "created"}
@@ -658,9 +667,9 @@ export default function RegistrantsAdminPage() {
                     />
                   </th>
                   <th className="p-2">
-                    <select
+                      <select
                       value={sentFilter}
-                      onChange={(e) => setSentFilter(e.target.value as any)}
+                      onChange={(e) => setSentFilter(e.target.value as "all" | "yes" | "no")}
                       className="w-full p-2 rounded-lg bg-white/10 border border-white/20"
                       title="Emailed status"
                     >
@@ -680,7 +689,7 @@ export default function RegistrantsAdminPage() {
                   <th className="p-2">
                     <select
                       value={verifiedFilter}
-                      onChange={(e) => setVerifiedFilter(e.target.value as any)}
+                      onChange={(e) => setVerifiedFilter(e.target.value as "all" | "yes" | "no")}
                       className="w-full p-2 rounded-lg bg-white/10 border border-white/20"
                       title="Verified status"
                     >
@@ -692,13 +701,25 @@ export default function RegistrantsAdminPage() {
                   <th className="p-2">
                     <select
                       value={winFilter}
-                      onChange={(e) => setWinFilter(e.target.value as any)}
+                      onChange={(e) => setWinFilter(e.target.value as "all" | "yes" | "no")}
                       className="w-full p-2 rounded-lg bg-white/10 border border-white/20"
                       title="Win status"
                     >
                       <option value="all">All</option>
                       <option value="yes">Yes</option>
                       <option value="no">No</option>
+                    </select>
+                  </th>
+                  <th className="p-2">
+                    <select
+                      value={foodFilter}
+                      onChange={(e) => setFoodFilter(e.target.value as "all" | "yes" | "no")}
+                      className="w-full p-2 rounded-lg bg-white/10 border border-white/20"
+                      title="Food claimed status"
+                    >
+                      <option value="all">All</option>
+                      <option value="yes">Claimed</option>
+                      <option value="no">Not claimed</option>
                     </select>
                   </th>
                   <th className="p-2">
@@ -716,7 +737,7 @@ export default function RegistrantsAdminPage() {
                 {loading ? (
                   [...Array(pageSize)].map((_, i) => (
                     <tr key={i} className="border-t border-white/10">
-                      {[...Array(10)].map((__, j) => (
+                      {[...Array(11)].map((__, j) => (
                         <td key={j} className="p-3">
                           <div className="h-4 w-24 sm:w-32 bg-white/10 rounded animate-pulse" />
                         </td>
@@ -725,7 +746,7 @@ export default function RegistrantsAdminPage() {
                   ))
                 ) : paged.length === 0 ? (
                   <tr>
-                    <td className="p-6 text-center text-slate-300" colSpan={10}>
+                    <td className="p-6 text-center text-slate-300" colSpan={11}>
                       No registrants found.
                     </td>
                   </tr>
@@ -800,6 +821,13 @@ export default function RegistrantsAdminPage() {
                           okText="Winner"
                           noText="—"
                           okClass="bg-amber-400/30 text-amber-950 border-amber-400/50"
+                        />
+                      </td>
+                      <td className="p-3">
+                        <Chip
+                          ok={r.is_claimed_food === "Y"}
+                          okText="Claimed"
+                          noText="Not claimed"
                         />
                       </td>
                       <td className="p-3 whitespace-nowrap">

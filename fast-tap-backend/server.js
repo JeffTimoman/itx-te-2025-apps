@@ -257,7 +257,7 @@ app.get('/api/admin/registrants', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   try {
     const sql = `
-      SELECT r.id, r.name, r.gacha_code, r.email, r.is_win, r.is_verified, r.is_send_email, r.bureau, r.created_at,
+      SELECT r.id, r.name, r.gacha_code, r.email, r.is_win, r.is_verified, r.is_send_email, r.is_claimed_food, r.bureau, r.created_at,
         COALESCE(gwagg.gifts, '[]') AS gifts
       FROM registrants r
       LEFT JOIN (
@@ -486,7 +486,7 @@ app.post('/api/admin/registrants', async (req, res) => {
     const insertSql = `
       INSERT INTO registrants (name, gacha_code, email, bureau)
       VALUES ($1, $2, $3, $4)
-      RETURNING id, name, gacha_code, email, is_win, is_verified, is_send_email, bureau, created_at
+      RETURNING id, name, gacha_code, email, is_win, is_verified, is_send_email, is_claimed_food, bureau, created_at
     `;
     const vals = [String(name).trim(), null, email, bureau];
     const result = await pgPool.query(insertSql, vals);
@@ -521,7 +521,7 @@ app.patch('/api/admin/registrants/:id', async (req, res) => {
       }
 
       values.push(id);
-      const sql = `UPDATE registrants SET ${updates.join(', ')} WHERE id = $${idx} RETURNING id, name, gacha_code, email, is_win, is_verified, is_send_email, bureau, created_at`;
+  const sql = `UPDATE registrants SET ${updates.join(', ')} WHERE id = $${idx} RETURNING id, name, gacha_code, email, is_win, is_verified, is_send_email, is_claimed_food, bureau, created_at`;
       const result = await pgPool.query(sql, values);
       if (result.rows.length === 0) return res.status(404).json({ error: 'Registrant not found' });
       res.json(result.rows[0]);
@@ -569,7 +569,7 @@ process.on('SIGINT', async () => {
 app.get('/api/admin/gifts', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   try {
-    const result = await pgPool.query('SELECT id, name, description, quantity, gift_category_id, created_at FROM gift ORDER BY id DESC LIMIT 1000');
+  const result = await pgPool.query('SELECT id, name, description, quantity, gift_category_id, created_at FROM gift ORDER BY lower(name) ASC LIMIT 1000');
     res.json(result.rows);
   } catch (err) {
     console.error('Error fetching gifts', err && err.message);
@@ -791,7 +791,7 @@ app.get('/api/qr', async (req, res) => {
 app.post('/api/admin/gifts/:id/assign', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   const giftId = parseInt(req.params.id, 10);
-  const { registrant_id } = req.body || {};
+  const { registrant_id, useWinningChance } = req.body || {};
   if (Number.isNaN(giftId)) return res.status(400).json({ error: 'Invalid gift id' });
   if (!registrant_id) return res.status(400).json({ error: 'registrant_id is required' });
 
@@ -821,9 +821,14 @@ app.post('/api/admin/gifts/:id/assign', async (req, res) => {
     }
 
     // allow multiple assignments of the same gift to the same registrant (no unique constraint)
-
-    const insertSql = `INSERT INTO gift_winners (registrant_id, gift_id, is_assigned) VALUES ($1, $2, 'Y') RETURNING id, registrant_id, gift_id, date_awarded, is_assigned`;
-    const ir = await client.query(insertSql, [registrant_id, giftId]);
+    let isAssigned = 'Y';
+    if (useWinningChance) {
+      isAssigned = 'N';
+      // mark registrant as winner
+      await client.query('UPDATE registrants SET is_win = $1 WHERE id = $2', ['Y', registrant_id]);
+    }
+    const insertSql = `INSERT INTO gift_winners (registrant_id, gift_id, is_assigned) VALUES ($1, $2, $3) RETURNING id, registrant_id, gift_id, date_awarded, is_assigned`;
+    const ir = await client.query(insertSql, [registrant_id, giftId, isAssigned]);
     await client.query('COMMIT');
 
     return res.json(ir.rows[0]);
@@ -839,3 +844,271 @@ app.post('/api/admin/gifts/:id/assign', async (req, res) => {
 // Register resend endpoint and socket handlers from extracted modules
 registerResendEndpoint(app, () => pgPool);
 registerSocketHandlers(io, gameManager);
+
+// Foods CRUD for admin
+app.get('/api/admin/foods', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const result = await pgPool.query('SELECT id, name, created_at FROM food ORDER BY id ASC');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching foods', err && err.message);
+    res.status(500).json({ error: 'Failed to fetch foods' });
+  }
+});
+
+app.post('/api/admin/foods', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const { name } = req.body || {};
+    if (!name || String(name).trim().length === 0) return res.status(400).json({ error: 'Name required' });
+    const result = await pgPool.query('INSERT INTO food (name) VALUES ($1) RETURNING id, name, created_at', [String(name).trim()]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error creating food', err && err.message);
+    res.status(500).json({ error: 'Failed to create food' });
+  }
+});
+
+// List eligible registrants for a food (verified, not already claimed any food)
+app.get('/api/admin/foods/:id/eligible-registrants', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const foodId = parseInt(req.params.id, 10);
+    if (Number.isNaN(foodId)) return res.status(400).json({ error: 'Invalid food id' });
+    // registrants who are verified = 'Y' and not present in registrant_claim_foods
+    const sql = `SELECT id, name, gacha_code, email, bureau FROM registrants WHERE is_verified = $1 AND id NOT IN (SELECT registrant_id FROM registrant_claim_foods)`;
+    const result = await pgPool.query(sql, ['Y']);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching eligible registrants', err && err.message);
+    res.status(500).json({ error: 'Failed to fetch eligible registrants' });
+  }
+});
+
+// Claim a food for a registrant (transactional) — a registrant can only claim one food
+app.post('/api/admin/foods/:id/claim', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  const foodId = parseInt(req.params.id, 10);
+  const { registrant_id } = req.body || {};
+  if (Number.isNaN(foodId)) return res.status(400).json({ error: 'Invalid food id' });
+  if (!registrant_id) return res.status(400).json({ error: 'registrant_id is required' });
+
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+    // ensure registrant exists and is verified
+    const r = await client.query('SELECT id, is_verified FROM registrants WHERE id = $1 FOR UPDATE', [registrant_id]);
+    if (r.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Registrant not found' });
+    }
+    if (r.rows[0].is_verified !== 'Y') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Registrant is not verified' });
+    }
+
+    // ensure registrant hasn't already claimed any food
+    const ccheck = await client.query('SELECT id FROM registrant_claim_foods WHERE registrant_id = $1 FOR UPDATE', [registrant_id]);
+    if (ccheck.rows.length > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Registrant has already claimed a food' });
+    }
+
+    // ensure food exists
+    const fRes = await client.query('SELECT id FROM food WHERE id = $1 FOR UPDATE', [foodId]);
+    if (fRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Food not found' });
+    }
+
+    const insertSql = 'INSERT INTO registrant_claim_foods (registrant_id, food_id) VALUES ($1, $2) RETURNING id, registrant_id, food_id, claimed_at';
+    const ir = await client.query(insertSql, [registrant_id, foodId]);
+    await client.query('COMMIT');
+    res.json(ir.rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error claiming food', err && err.message);
+    res.status(500).json({ error: 'Failed to claim food' });
+  } finally {
+    client.release();
+  }
+});
+
+// Teams CRUD for admin
+app.get('/api/admin/teams', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const result = await pgPool.query('SELECT id, name, created_at FROM teams ORDER BY id ASC');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching teams', err && err.message);
+    res.status(500).json({ error: 'Failed to fetch teams' });
+  }
+});
+
+app.post('/api/admin/teams', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const { name } = req.body || {};
+    if (!name || String(name).trim().length === 0) return res.status(400).json({ error: 'Name required' });
+    const result = await pgPool.query('INSERT INTO teams (name) VALUES ($1) RETURNING id, name, created_at', [String(name).trim()]);
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error('Error creating team', err && err.message);
+    res.status(500).json({ error: 'Failed to create team' });
+  }
+});
+
+app.patch('/api/admin/teams/:id', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { name } = req.body || {};
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+    if (!name || String(name).trim().length === 0) return res.status(400).json({ error: 'Name required' });
+    const result = await pgPool.query('UPDATE teams SET name = $1 WHERE id = $2 RETURNING id, name, created_at', [String(name).trim(), id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Team not found' });
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('Error updating team', err && err.message);
+    res.status(500).json({ error: 'Failed to update team' });
+  }
+});
+
+app.delete('/api/admin/teams/:id', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (Number.isNaN(id)) return res.status(400).json({ error: 'Invalid id' });
+    await pgPool.query('DELETE FROM teams WHERE id = $1', [id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Error deleting team', err && err.message);
+    res.status(500).json({ error: 'Failed to delete team' });
+  }
+});
+
+// Insert multiple team scores for a game (transactional)
+app.post('/api/admin/team-scores/bulk', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  const { game_name, scores } = req.body || {};
+  if (!game_name || !Array.isArray(scores) || scores.length === 0) return res.status(400).json({ error: 'game_name and scores required' });
+
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+    const insertSql = 'INSERT INTO team_scores (team_id, game_name, point) VALUES ($1, $2, $3) RETURNING id, team_id, game_name, point, created_at';
+    const inserted = [];
+    for (const s of scores) {
+      const tid = parseInt(s.team_id, 10);
+      const pt = parseInt(s.point, 10) || 0;
+      if (Number.isNaN(tid)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'Invalid team_id in scores' });
+      }
+      const r = await client.query(insertSql, [tid, String(game_name), pt]);
+      inserted.push(r.rows[0]);
+    }
+    await client.query('COMMIT');
+    res.status(201).json({ inserted });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error inserting team scores', err && err.message);
+    res.status(500).json({ error: 'Failed to insert team scores' });
+  } finally {
+    client.release();
+  }
+});
+
+// Get total points per team (sum)
+app.get('/api/admin/team-scores/totals', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const sql = `SELECT t.id as team_id, t.name, COALESCE(SUM(ts.point),0) as total_points FROM teams t LEFT JOIN team_scores ts ON ts.team_id = t.id GROUP BY t.id, t.name ORDER BY t.id ASC`;
+    const result = await pgPool.query(sql);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching team totals', err && err.message);
+    res.status(500).json({ error: 'Failed to fetch team totals' });
+  }
+});
+
+// Optional: list raw team_scores
+app.get('/api/admin/team-scores', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const result = await pgPool.query('SELECT id, team_id, game_name, point, created_at FROM team_scores ORDER BY created_at DESC LIMIT 1000');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching team scores', err && err.message);
+    res.status(500).json({ error: 'Failed to fetch team scores' });
+  }
+});
+
+// Validate a food voucher by code (admin)
+app.get('/api/admin/food-vouchers/:code', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  try {
+    const code = String(req.params.code || '').trim().toUpperCase();
+    if (!code) return res.status(400).json({ error: 'Missing code' });
+    const sql = 'SELECT id, code, is_claimed, registrant_id, created_at FROM food_voucher WHERE UPPER(code) = $1 LIMIT 1';
+    const result = await pgPool.query(sql, [code]);
+    if (result.rows.length === 0) return res.status(404).json({ ok: false, error: 'Voucher not found' });
+    const v = result.rows[0];
+    return res.json({ ok: true, voucher: v });
+  } catch (err) {
+    console.error('Error validating voucher', err && err.message);
+    res.status(500).json({ error: 'Failed to validate voucher' });
+  }
+});
+
+// Claim a food voucher by code (transactional) — marks voucher is_claimed = 'Y' and inserts registrant_claim_foods if not exists
+app.post('/api/admin/food-vouchers/:code/claim', async (req, res) => {
+  if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
+  const code = String(req.params.code || '').trim().toUpperCase();
+  const { operator_note = null } = req.body || {};
+  if (!code) return res.status(400).json({ error: 'Missing code' });
+
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+    // Lock voucher row
+    const vres = await client.query('SELECT id, code, is_claimed, registrant_id FROM food_voucher WHERE UPPER(code) = $1 FOR UPDATE', [code]);
+    if (vres.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ ok: false, error: 'Voucher not found' });
+    }
+    const voucher = vres.rows[0];
+    if (voucher.is_claimed === 'Y') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ ok: false, error: 'Voucher already claimed' });
+    }
+
+    // If voucher has a registrant_id, ensure they have not already claimed via registrant_claim_foods
+    if (voucher.registrant_id) {
+      const rcRes = await client.query('SELECT id FROM registrant_claim_foods WHERE registrant_id = $1 FOR UPDATE', [voucher.registrant_id]);
+      if (rcRes.rows.length > 0) {
+        // Registrant already claimed a food — do not allow voucher redemption
+        await client.query('ROLLBACK');
+        return res.status(400).json({ ok: false, error: 'Registrant already claimed food' });
+      }
+      // Insert into registrant_claim_foods with a NULL food_id (operator can set later)
+      await client.query('INSERT INTO registrant_claim_foods (registrant_id, food_id) VALUES ($1, $2)', [voucher.registrant_id, null]);
+      // Mark registrant as having claimed a food voucher
+      await client.query("UPDATE registrants SET is_claimed_food = 'Y' WHERE id = $1", [voucher.registrant_id]);
+    }
+
+    // Mark voucher claimed
+    await client.query("UPDATE food_voucher SET is_claimed = 'Y' WHERE id = $1", [voucher.id]);
+
+    await client.query('COMMIT');
+    return res.json({ ok: true, claimed: true, voucher_id: voucher.id });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error claiming voucher', err && err.message);
+    return res.status(500).json({ ok: false, error: 'Failed to claim voucher' });
+  } finally {
+    client.release();
+  }
+});
