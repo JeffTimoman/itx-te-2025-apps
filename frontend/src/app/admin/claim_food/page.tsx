@@ -62,6 +62,18 @@ export default function ClaimFoodScannerPage() {
   }
 
   const ensureDetector = useCallback(async () => {
+    // Force jsQR fallback on mobile devices (many mobile browsers have
+    // unreliable BarcodeDetector implementations). We detect mobile via
+    // a simple UA check.
+    function isMobileUA() {
+      if (typeof navigator === "undefined") return false;
+      const ua = navigator.userAgent || "";
+      return /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+    }
+    if (isMobileUA()) {
+      console.debug("scanner:force jsQR on mobile UA");
+      return null;
+    }
     if (detectorRef.current) return detectorRef.current;
     const BD = (window as WindowWithBD).BarcodeDetector;
     if (BD) {
