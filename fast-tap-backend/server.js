@@ -569,7 +569,7 @@ process.on('SIGINT', async () => {
 app.get('/api/admin/gifts', async (req, res) => {
   if (!pgPool) return res.status(503).json({ error: 'Postgres not configured' });
   try {
-    const result = await pgPool.query('SELECT id, name, description, quantity, gift_category_id, created_at FROM gift ORDER BY id DESC LIMIT 1000');
+  const result = await pgPool.query('SELECT id, name, description, quantity, gift_category_id, created_at FROM gift ORDER BY lower(name) ASC LIMIT 1000');
     res.json(result.rows);
   } catch (err) {
     console.error('Error fetching gifts', err && err.message);
