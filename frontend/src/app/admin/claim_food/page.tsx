@@ -27,6 +27,8 @@ export default function ClaimFoodScannerPage() {
   }
   const detectorRef = useRef<BarcodeDetectorLike | null>(null);
   const detectorReadyRef = useRef(false);
+  // whether native BarcodeDetector supports 1-D formats on this device
+  const has1DRef = useRef(false);
 
   // User action to prevent auto-restart after Stop
   const userStopRef = useRef(false);
@@ -206,14 +208,30 @@ export default function ClaimFoodScannerPage() {
           const formats = supported.length ? wanted.filter((f) => supported.includes(f)) : wanted;
           detectorRef.current = new BD({ formats }) as unknown as BarcodeDetectorInstance;
           detectorReadyRef.current = true;
-          console.debug("BarcodeDetector ready with formats:", formats);
+
+          // mark if at least one common 1-D format is supported
+          has1DRef.current = formats.some((f) =>
+            [
+              "code_128",
+              "code_39",
+              "ean_13",
+              "ean_8",
+              "upc_a",
+              "upc_e",
+              "itf",
+              "codabar",
+            ].includes(f)
+          );
+
+          console.debug("BarcodeDetector ready with formats:", formats, " has1D:", has1DRef.current);
         } else {
-          console.debug("BarcodeDetector not available; will use ZXing fallback.");
+          console.debug("BarcodeDetector not available; will use ZXing too.");
         }
-      } catch {
-        console.debug("BarcodeDetector init failed; will use ZXing fallback.");
+      } catch (e) {
+        console.debug("BarcodeDetector init failed; will use ZXing.", e);
         detectorRef.current = null;
         detectorReadyRef.current = false;
+        has1DRef.current = false;
       }
     })();
   }, []);
@@ -281,28 +299,38 @@ export default function ClaimFoodScannerPage() {
     zxingStartedRef.current = false;
   }, []);
 
-  // ---------- Scan loop (native detector path only) ----------
+  // ---------- Scan loop (tries native detector each tick; ZXing runs in background) ----------
   const loop = useCallback(async () => {
     if (!scanning || paused) return;
     const video = videoRef.current;
     if (!video) return;
 
-    // Try native detector first (cheap & fast)
+    // Ensure ZXing session is running (if not already) — it will callback on detections
+    if (!zxingStartedRef.current) startZxing();
+
+    // Try native detector each tick for quick QR/2D (and 1D if supported).
     if (detectorReadyRef.current && detectorRef.current) {
       try {
-        const results = await detectorRef.current.detect(video);
-        if (results?.length && onDetectedRef.current) {
-          const best = results[0];
-          onDetectedRef.current(String(best.rawValue || ""));
-          return;
+        // More reliable on iOS: detect from a canvas snapshot, not the <video> element
+        const w = video.videoWidth || 640;
+        const h = video.videoHeight || 480;
+        if (w && h) {
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, w, h);
+            const results = await detectorRef.current.detect(canvas as unknown as CanvasImageSource);
+            if (results?.length && onDetectedRef.current) {
+              const best = results[0];
+              onDetectedRef.current(String(best.rawValue || ""));
+              return;
+            }
+          }
         }
       } catch {
         // ignore this tick
-      }
-    } else {
-      // If native detector isn't available, ensure ZXing continuous session is running
-      if (!zxingStartedRef.current) {
-        startZxing();
       }
     }
   }, [paused, scanning, startZxing]);
@@ -328,6 +356,11 @@ export default function ClaimFoodScannerPage() {
         await videoRef.current.play().catch(() => {});
       }
 
+      // If native detector lacks 1-D support, start ZXing continuous session
+      if (!has1DRef.current && !zxingStartedRef.current) {
+        startZxing();
+      }
+
       setScanning(true);
       setPaused(false);
       setStatus("Scanning…");
@@ -341,7 +374,7 @@ export default function ClaimFoodScannerPage() {
       setScanning(false);
       setPaused(false);
     }
-  }, [loop]);
+  }, [loop, startZxing]);
 
   const stopCamera = useCallback(() => {
     clearTimer();
