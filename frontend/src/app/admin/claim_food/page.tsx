@@ -15,15 +15,7 @@ import authFetch from "../../../lib/api/client";
  * - Robust status messaging + toasts-like chips
  */
 export default function ClaimFoodScannerPage() {
-  type WindowWithBD = Window & { BarcodeDetector?: unknown };
-
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  interface BarcodeDetectorLike {
-    detect(source: HTMLVideoElement): Promise<Array<Record<string, unknown>>>;
-  }
-  type BarcodeDetectorCtor = new (opts?: { formats?: string[] }) => BarcodeDetectorLike;
-
-  const detectorRef = useRef<BarcodeDetectorLike | null>(null); // BarcodeDetector instance
   const intervalRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   type JsQRFn = (
@@ -61,35 +53,7 @@ export default function ClaimFoodScannerPage() {
     }
   }
 
-  const ensureDetector = useCallback(async () => {
-    // Force jsQR fallback on mobile devices (many mobile browsers have
-    // unreliable BarcodeDetector implementations). We detect mobile via
-    // a simple UA check.
-    function isMobileUA() {
-      if (typeof navigator === "undefined") return false;
-      const ua = navigator.userAgent || "";
-      return /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
-    }
-    if (isMobileUA()) {
-      console.debug("scanner:force jsQR on mobile UA");
-      return null;
-    }
-    if (detectorRef.current) return detectorRef.current;
-    const BD = (window as WindowWithBD).BarcodeDetector;
-    if (BD) {
-      try {
-        const Ctor = BD as unknown as BarcodeDetectorCtor;
-        detectorRef.current = new Ctor({
-          formats: ["code_128", "code_39", "ean_13", "qr_code"],
-        });
-        return detectorRef.current;
-      } catch {
-        // If creation fails, fall through to jsQR fallback
-        detectorRef.current = null;
-      }
-    }
-    return null;
-  }, []);
+
 
   // Camera controls are defined after the scanner loop to avoid hook dependency ordering issues
 
@@ -238,26 +202,7 @@ export default function ClaimFoodScannerPage() {
     const video = videoRef.current;
     if (!video) return;
 
-    // Prefer native API
-    const detector = await ensureDetector();
-    if (detector) {
-      console.debug("scanner:using BarcodeDetector");
-      try {
-        const barcodes = await detector.detect(video);
-        if (barcodes && barcodes.length > 0) {
-          const b0 = barcodes[0] as Record<string, unknown>;
-          const val = String(
-            (b0.rawValue as string) || (b0.rawText as string) || (b0.raw_data as string) || ""
-          );
-          if (val && onDetectedRef.current) onDetectedRef.current(val);
-        }
-      } catch {
-        // if detect fails repeatedly, fall back later
-      }
-      return;
-    }
-
-    // Fallback: jsQR (lazy load once)
+    // jsQR (canvas) decoder path (we force this path)
       try {
         console.debug("scanner:using jsQR fallback");
         if (!jsqrRef.current) {
@@ -282,7 +227,7 @@ export default function ClaimFoodScannerPage() {
       } catch {
         // ignore
       }
-  }, [paused, scanning, ensureDetector]);
+  }, [paused, scanning]);
 
   // --- Camera controls (defined after loop) ---
   const startCamera = useCallback(async () => {
