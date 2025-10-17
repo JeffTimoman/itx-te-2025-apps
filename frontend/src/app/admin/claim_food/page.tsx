@@ -401,19 +401,36 @@ export default function ClaimFoodScannerPage() {
     setStatus("Paused");
   }, [stopZxing]);
 
+  // Resume camera: re-enable tracks, ensure video.play(), restart tick and start ZXing immediately
   const resumeCamera = useCallback(() => {
     const s = streamRef.current;
     if (!s) {
+      // If stream is gone (tab suspended or iOS), do a full restart
       if (!userStopRef.current) startCamera();
       return;
     }
+
+    // Re-enable track
     s.getVideoTracks().forEach((t) => (t.enabled = true));
+
+    // Ensure the <video> actually plays again (important on Safari/iOS)
+    const v = videoRef.current;
+    if (v && (v.paused || v.readyState < 2)) {
+      v.play().catch(() => {});
+    }
+
     setPaused(false);
     setStatus("Scanning…");
+
+    // Restart the native-detector tick
     clearTimer();
     intervalRef.current = window.setInterval(loop, 300);
-    // If native detector isn’t available, loop will ensure ZXing is running
-  }, [startCamera, loop]);
+
+    // Kick ZXing immediately (don’t wait for the next loop tick)
+    if (!zxingStartedRef.current) {
+      startZxing();
+    }
+  }, [startCamera, loop, startZxing]);
 
   useEffect(() => {
     pauseRef.current = pauseCamera;
@@ -444,7 +461,10 @@ export default function ClaimFoodScannerPage() {
     setPopup(null);
     setStatus("Scanning…");
     setLastDetected("");
-    if (scanning) resumeCamera();
+    if (scanning) {
+      // Let React commit state, then resume to avoid races with the pause flow
+      queueMicrotask(() => resumeCamera());
+    }
   }, [resumeCamera, scanning]);
 
   const onClaim = useCallback(async () => {

@@ -9,6 +9,7 @@ export type Registrant = {
   is_win?: string;
   is_verified?: string;
   is_send_email?: string;
+  is_claimed_food?: string;
   bureau?: string | null;
   created_at?: string;
 };
