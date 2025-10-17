@@ -1238,10 +1238,14 @@ export default function GachaPageMain() {
       const res = await authFetch("/api/admin/gifts/available");
       if (!res.ok) throw await res.json();
       const data = await res.json();
-      setGifts(data || []);
-      // initialize selectedGiftsArr with first gift id for each slot
-      if ((!selectedGiftsArr || selectedGiftsArr.length === 0) && data?.length) {
-        const first = data[0].id;
+      // sort gifts A→Z (case-insensitive) so dropdowns are predictable
+      const sorted = (data || []).slice().sort((a: GiftAvail, b: GiftAvail) =>
+        String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" })
+      );
+      setGifts(sorted);
+      // initialize selectedGiftsArr with first gift id for each slot using sorted list
+      if ((!selectedGiftsArr || selectedGiftsArr.length === 0) && sorted.length) {
+        const first = sorted[0].id;
         setSelectedGiftsArr(Array(MAX_SLOTS).fill(first));
       }
     } catch (e) {
