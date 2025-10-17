@@ -1,46 +1,4 @@
-// "use client";
-
-// import React, {
-//   useCallback,
-//   useEffect,
-//   useMemo,
-//   useRef,
-//   useState,
-// } from "react";
-// import authFetch from "../../../lib/api/client";
-// import AdminHeader from "../../../components/AdminHeader";
-// import { motion, AnimatePresence } from "framer-motion";
-
-// /**
-//  * GachaPage — code + menu + sequential glitch (prefix then suffix)
-//  *
-//  * 🔧 Packages:
-//  *   npm i framer-motion canvas-confetti
-//  */
-
-// type GiftAvail = {
-//   id: number;
-//   name: string;
-//   description?: string | null;
-//   quantity: number;
-//   awarded: number;
-//   gift_category_id?: number | null;
-// };
-
-// type PreviewWinner = { id: number; name: string; gacha_code?: string | null };
-
-// // Timings
-// const GLITCH_MS_FIRST_PREFIX = 2200;
-// const GLITCH_MS_FIRST_SUFFIX = 8000; // long drum-roll overall, but suffix starts after prefix completes
-// const GLITCH_MS_REFRESH_PREFIX = 500;
-// const GLITCH_MS_REFRESH_SUFFIX = 2000;
-
-// const DECODE_MS_FIRST_PREFIX = 360;
-// const DECODE_MS_FIRST_SUFFIX = 1200;
-// const DECODE_MS_REFRESH_PREFIX = 220;
-// const DECODE_MS_REFRESH_SUFFIX = 400;
-
-// const SUFFIX_LEN = 10; // 10 digits
+// ...removed stray JSX inserted above 'use client' to fix top-level syntax
 
 // export default function GachaPage() {
 //   // data
@@ -1266,6 +1224,11 @@ export default function GachaPageMain() {
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
 
+  // Auto-open the menu when entering fullscreen; close when exiting
+  useEffect(() => {
+    setIsMenuOpen(Boolean(isFullscreen));
+  }, [isFullscreen]);
+
   async function enterFullscreen() {
     try {
       await hostRef.current?.requestFullscreen();
@@ -1938,11 +1901,14 @@ export default function GachaPageMain() {
             />
             <motion.aside
               key="menu-panel"
-              initial={{ x: -340, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: -340, opacity: 0 }}
+              initial={isFullscreen ? { opacity: 0, scale: 0.98, y: 12, x: 8 } : { x: -340, opacity: 0 }}
+              animate={isFullscreen ? { opacity: 1, scale: 1, y: 0, x: 0 } : { x: 0, opacity: 1 }}
+              exit={isFullscreen ? { opacity: 0, scale: 0.98, y: 12, x: 8 } : { x: -340, opacity: 0 }}
               transition={{ type: "spring", stiffness: 260, damping: 24 }}
-              className={`fixed left-0 top-0 bottom-0 z-[9999] w-[320px] max-w-[85vw] ${panelGlass} p-6 overflow-y-auto`}
+              className={isFullscreen
+                ? `fixed right-4 bottom-20 z-[9999] w-[320px] max-w-[92vw] ${panelGlass} p-4 shadow-2xl`
+                : `fixed left-0 top-0 bottom-0 z-[9999] w-[320px] max-w-[85vw] ${panelGlass} p-6 overflow-y-auto`
+              }
               role="dialog"
               aria-modal="true"
               aria-label="Gacha Controls"
