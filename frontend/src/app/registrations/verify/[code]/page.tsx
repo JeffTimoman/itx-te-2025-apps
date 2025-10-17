@@ -1007,7 +1007,6 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
   useEffect(() => {
     fetchRegistrants();
     // soft countdown
-    // @ts-expect-error window interval typing
     timerRef.current = window.setInterval(() => {
       setSecondsLeft((s) => (s > 0 ? s - 1 : 0));
     }, 1000);
