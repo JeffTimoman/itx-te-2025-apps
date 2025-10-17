@@ -17,7 +17,7 @@ export default function ClaimFoodScannerPage() {
   const streamRef = useRef<MediaStream | null>(null);
 
   // ZXing (browser) controls + reader
-  const zxingReaderRef = useRef<any | null>(null);
+  const zxingReaderRef = useRef<unknown | null>(null);
   const zxingControlsRef = useRef<{ stop: () => void } | null>(null);
   const zxingStartedRef = useRef(false);
 
@@ -184,12 +184,10 @@ export default function ClaimFoodScannerPage() {
   useEffect(() => {
     (async () => {
       try {
-        if (typeof window !== "undefined" && "BarcodeDetector" in window) {
-          // @ts-ignore
-          const supported =
-            await window.BarcodeDetector.getSupportedFormats?.().catch(
-              () => []
-            );
+        if (typeof window !== "undefined" && window.BarcodeDetector) {
+          const BD = window.BarcodeDetector as unknown as BarcodeDetectorConstructor;
+          const supported = (await BD.getSupportedFormats?.().catch(() => [])) ?? [];
+
           const wanted = [
             "code_128",
             "code_39",
@@ -204,23 +202,16 @@ export default function ClaimFoodScannerPage() {
             "aztec",
             "data_matrix",
           ];
-          const formats = supported?.length
-            ? wanted.filter((f) => supported.includes(f))
-            : wanted;
-          // @ts-ignore
-          detectorRef.current = new window.BarcodeDetector({ formats });
+
+          const formats = supported.length ? wanted.filter((f) => supported.includes(f)) : wanted;
+          detectorRef.current = new BD({ formats }) as unknown as BarcodeDetectorInstance;
           detectorReadyRef.current = true;
           console.debug("BarcodeDetector ready with formats:", formats);
         } else {
-          console.debug(
-            "BarcodeDetector not available; will use ZXing fallback."
-          );
+          console.debug("BarcodeDetector not available; will use ZXing fallback.");
         }
-      } catch (e) {
-        console.debug(
-          "BarcodeDetector init failed; will use ZXing fallback.",
-          e
-        );
+      } catch {
+        console.debug("BarcodeDetector init failed; will use ZXing fallback.");
         detectorRef.current = null;
         detectorReadyRef.current = false;
       }
@@ -231,32 +222,43 @@ export default function ClaimFoodScannerPage() {
   const startZxing = useCallback(async () => {
     if (zxingStartedRef.current) return;
     try {
-      const mod = await import("@zxing/browser"); // <- correct package for browser usage
-      const Reader = mod.BrowserMultiFormatReader;
-      const reader = new Reader(undefined, 250); // 250ms between attempts
+      const mod = await import("@zxing/library");
+  const m = mod as unknown as Record<string, unknown>;
+  const Reader = (m.BrowserMultiFormatReader as unknown) || (m.BrowserQRCodeReader as unknown);
+  const ReaderCtor = Reader as unknown as new (...args: unknown[]) => unknown;
+  const reader = new ReaderCtor(undefined, 250); // 250ms between attempts
       zxingReaderRef.current = reader;
 
       // Start continuous decode from the *existing* video element/stream
-      // decodeFromVideoDevice(null, video, callback) creates a loop and returns controls.stop()
-      const controls = await reader.decodeFromVideoDevice(
-        null,
-        videoRef.current as HTMLVideoElement,
-        (result: any, err: any) => {
-          if (result?.getText) {
-            const text = result.getText();
-            onDetectedRef.current?.(String(text));
-          } else if (result?.text) {
-            onDetectedRef.current?.(String(result.text));
-          }
-          // ignore NotFoundException errors; they just mean "no code this frame"
-        }
-      );
+      // The library's decodeFromVideoDevice signature varies; declare a narrow type
+      type ZXingReader = {
+        decodeFromVideoDevice?: (
+          deviceId: string | null,
+          videoElement: HTMLVideoElement,
+          cb: (res: unknown, err: unknown) => void
+        ) => Promise<{ stop: () => void }>;
+      };
+
+      const zxReader = reader as unknown as ZXingReader;
+      if (!videoRef.current) throw new Error("video element not ready");
+      const controls = zxReader.decodeFromVideoDevice
+        ? await zxReader.decodeFromVideoDevice(
+            null,
+            videoRef.current as HTMLVideoElement,
+            (result: unknown, _err: unknown) => {
+              void _err;
+              const res = result as { getText?: () => string; text?: string };
+              if (res?.getText) onDetectedRef.current?.(String(res.getText()));
+              else if (res?.text) onDetectedRef.current?.(String(res.text));
+            }
+          )
+        : await Promise.reject(new Error("decodeFromVideoDevice not supported"));
 
       zxingControlsRef.current = controls;
       zxingStartedRef.current = true;
       console.debug("ZXing continuous session started");
-    } catch (e) {
-      console.debug("ZXing start failed", e);
+    } catch {
+      console.debug("ZXing start failed");
       // If ZXing cannot start, keep silent; native detector may still work.
     }
   }, []);
@@ -266,7 +268,7 @@ export default function ClaimFoodScannerPage() {
       zxingControlsRef.current?.stop();
     } catch {}
     try {
-      zxingReaderRef.current?.reset?.();
+      (zxingReaderRef.current as { reset?: () => void } | null)?.reset?.();
     } catch {}
     zxingControlsRef.current = null;
     zxingReaderRef.current = null;
@@ -288,7 +290,7 @@ export default function ClaimFoodScannerPage() {
           onDetectedRef.current(String(best.rawValue || ""));
           return;
         }
-      } catch (e) {
+      } catch {
         // ignore this tick
       }
     } else {
@@ -327,8 +329,8 @@ export default function ClaimFoodScannerPage() {
       clearTimer();
       // Kick off the native-detector tick; if not available, loop will start ZXing once
       intervalRef.current = window.setInterval(loop, 300);
-    } catch (err) {
-      console.error("Camera start failed", err);
+    } catch {
+      console.error("Camera start failed");
       setStatus("Camera permission denied or unavailable");
       setScanning(false);
       setPaused(false);
@@ -341,8 +343,8 @@ export default function ClaimFoodScannerPage() {
     try {
       const s = streamRef.current;
       if (s) s.getTracks().forEach((t) => t.stop());
-    } catch (e) {
-      console.warn("stopCamera error", e);
+    } catch {
+      console.warn("stopCamera error");
     }
     if (videoRef.current) videoRef.current.srcObject = null;
     streamRef.current = null;
