@@ -192,8 +192,22 @@ export default function ClaimFoodScannerPage() {
       setStatus(`Invalid voucher: ${v.error || "not found"}`);
       return; // loop continues
     }
-    // Open popup and pause camera until decision
+    // Open popup and pause camera until decision. We both
+    // (a) perform an immediate inline pause to avoid races where pauseRef
+    //     hasn't been assigned yet (effects run after render), and
+    // (b) call pauseRef.current() for the canonical implementation.
     setPopup({ code, voucher: v.voucher });
+    // immediate inline pause
+    try {
+      clearTimer();
+      const s = streamRef.current;
+      if (s) s.getVideoTracks().forEach((t) => (t.enabled = false));
+      setPaused(true);
+      setStatus("Paused");
+    } catch {
+      // ignore
+    }
+    // canonical pause (if present)
     try {
       pauseRef.current();
     } catch {
