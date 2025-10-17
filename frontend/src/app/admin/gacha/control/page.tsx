@@ -2,6 +2,20 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
+type GachaState = {
+  gifts?: Array<{ id: number; name: string; quantity?: number; awarded?: number }>;
+  winnersCount?: number;
+  muted?: boolean;
+  volume?: number;
+};
+
+type ControlMsg =
+  | { type: "hello" }
+  | { type: "goodbye" }
+  | { type: "state-request" }
+  | { type: "state"; payload?: GachaState }
+  | { type: "command"; cmd: string; payload?: Record<string, unknown> };
+
 // Minimal control UI that communicates with the display via BroadcastChannel
 export default function GachaControlPage() {
   const chanRef = useRef<BroadcastChannel | null>(null);
@@ -16,7 +30,7 @@ export default function GachaControlPage() {
     chanRef.current = chan;
 
     const onMsg = (ev: MessageEvent) => {
-      const msg = ev.data as any;
+      const msg = ev.data as ControlMsg;
       if (!msg) return;
       if (msg.type === "hello") setConnected(true);
       if (msg.type === "goodbye") setConnected(false);
@@ -39,13 +53,13 @@ export default function GachaControlPage() {
 
   useEffect(() => {
     if (!statePayload) return;
-    const payload = statePayload as any;
+    const payload = statePayload as GachaState;
     setWinnersCount(Number(payload.winnersCount ?? 1));
-    setMuted(Boolean(payload.muted));
+    setMuted(Boolean(payload.muted ?? false));
     setVolume(Number(payload.volume ?? 0.9));
   }, [statePayload]);
 
-  const send = (msg: unknown) => {
+  const send = (msg: ControlMsg | { type: "command"; cmd: string; payload?: Record<string, unknown> }) => {
     try {
       chanRef.current?.postMessage(msg);
     } catch {}
@@ -58,7 +72,7 @@ export default function GachaControlPage() {
   const setWinners = (n: number) => send({ type: "command", cmd: "set-winners-count", payload: { count: n } });
   const setAudio = (m: boolean, v?: number) => send({ type: "command", cmd: "audio", payload: { mute: m, volume: v } });
 
-  const gifts = useMemo(() => (statePayload?.gifts as any[]) || [], [statePayload]);
+  const gifts = useMemo(() => (statePayload?.gifts as Array<{ id: number; name: string; quantity?: number; awarded?: number }>) || [], [statePayload]);
 
   return (
     <div className="min-h-screen p-6 bg-gray-900 text-white">
@@ -94,7 +108,7 @@ export default function GachaControlPage() {
         <label className="block mb-2">Gifts</label>
         <div className="max-h-48 overflow-auto bg-slate-800 p-2 rounded">
           {gifts.length === 0 && <div className="text-slate-400 text-sm">No gifts found</div>}
-          {gifts.map((g: any, idx: number) => (
+          {gifts.map((g, idx) => (
             <div key={g.id ?? idx} className="flex items-center justify-between text-sm py-1 border-b border-slate-700">
               <div>{g.name}</div>
               <div className="tabular-nums">{Math.max(0, (g.quantity ?? 0) - (g.awarded ?? 0))}</div>

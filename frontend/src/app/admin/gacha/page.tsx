@@ -1907,11 +1907,11 @@ export default function GachaPageMain() {
 
   // Wire function refs so the BroadcastChannel handler can call the latest impls
   // These assignments intentionally run each render to keep refs up-to-date.
-  pickRandomRef.current = pickRandom;
-  pickRandomSlotRef.current = pickRandomSlot;
-  saveWinnerRef.current = saveWinner;
-  enterFsRef.current = enterFullscreen;
-  exitFsRef.current = exitFullscreen;
+  (pickRandomRef as React.MutableRefObject<((spectacular: boolean) => Promise<void>) | null>).current = pickRandom;
+  (pickRandomSlotRef as React.MutableRefObject<((spectacular: boolean, slot: number) => Promise<void>) | null>).current = pickRandomSlot;
+  (saveWinnerRef as React.MutableRefObject<(() => Promise<void>) | null>).current = saveWinner;
+  (enterFsRef as React.MutableRefObject<(() => Promise<void>) | null>).current = enterFullscreen;
+  (exitFsRef as React.MutableRefObject<(() => Promise<void>) | null>).current = exitFullscreen;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
