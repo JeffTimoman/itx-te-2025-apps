@@ -2108,6 +2108,44 @@ export default function GachaPageMain() {
                             <line x1="12" y1="15" x2="12" y2="3"></line>
                           </svg>
                         </button>
+
+                        {/* Eye toggle: show/hide all preview names for active slots */}
+                        {(() => {
+                          const slots = winnersCount;
+                          const anyPreview = previews.slice(0, slots).some((p) => !!p);
+                          const allShown = previews.slice(0, slots).every((_, idx) => !!showPreviewNameArr[idx]);
+                          const disabled = !anyPreview;
+                          return (
+                            <button
+                              onClick={() => {
+                                setShowPreviewNameArr((arr) => {
+                                  const copy = [...arr];
+                                  for (let i = 0; i < slots; i++) copy[i] = !allShown;
+                                  return copy;
+                                });
+                              }}
+                              disabled={disabled}
+                              aria-label={allShown ? 'Hide all winners' : 'Show all winners'}
+                              title={allShown ? 'Hide all winner names' : 'Show all winner names'}
+                              className={`w-10 h-10 flex items-center justify-center rounded-full ${!disabled ? 'bg-amber-950/30 hover:bg-amber-950/40 border border-amber-900/40 text-amber-100' : 'bg-amber-950/10 text-amber-400 cursor-not-allowed opacity-60'}`}
+                            >
+                              {/* eye / eye-off icon */}
+                              {allShown ? (
+                                // eye-off (closed)
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-5 0-9.27-3.11-11-7 1.11-2.48 3.03-4.44 5.35-5.6"></path>
+                                  <path d="M1 1l22 22"></path>
+                                </svg>
+                              ) : (
+                                // eye (open)
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                  <circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                              )}
+                            </button>
+                          );
+                        })()}
                       </div>
                     );
                   })()}
