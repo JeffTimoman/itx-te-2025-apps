@@ -16,8 +16,7 @@
     "framer-motion": "^10.12.16",
     "canvas-confetti": "^1.6.0"
     ,
-  "@zxing/library": "^0.18.6",
-  "@zxing/browser": "^0.0.12"
+  "@zxing/library": "^0.18.6"
     ,
     "jsqr": "^1.4.0"
   },
