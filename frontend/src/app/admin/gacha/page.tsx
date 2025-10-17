@@ -1794,6 +1794,34 @@ export default function GachaPageMain() {
   const panelGlass =
     "bg-[rgba(36,24,19,0.72)] border border-amber-900/30 backdrop-blur-md";
 
+  // Expose a minimal remote API for Stage pages to call via window.__gacha_api__
+  useEffect(() => {
+    const api = {
+      enterFullscreen: async () => await enterFullscreen(),
+      exitFullscreen: async () => await exitFullscreen(),
+      pickRandom: async (spectacular: boolean) => await pickRandom(spectacular),
+      pickRandomSlot: async (spectacular: boolean, slot: number) => await pickRandomSlot(spectacular, slot),
+      saveWinner: async () => await saveWinner(),
+      setWinnersCount: (n: number) => setWinnersCount(n),
+      setGiftForSlot: (slot: number, giftId: number) => setSelectedGiftsArr((arr) => { const c = [...arr]; c[slot] = giftId; return c; }),
+      setMuted: (m: boolean) => { setMuted(m); audioKit.setMuted(m); },
+      setVolume: (v: number) => { setVolume(v); audioKit.setVolume(v); },
+      ensureCtx: async () => await audioKit.ensureCtx(),
+    } as const;
+
+    try {
+      (window as unknown as { __gacha_api__?: import("../../../lib/gacha-wire").GachaAPI }).__gacha_api__ = api;
+    } catch {}
+
+    return () => {
+      try {
+        const w = window as unknown as { __gacha_api__?: import("../../../lib/gacha-wire").GachaAPI };
+        if (w.__gacha_api__ === api) delete w.__gacha_api__;
+      } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div
       ref={hostRef}
