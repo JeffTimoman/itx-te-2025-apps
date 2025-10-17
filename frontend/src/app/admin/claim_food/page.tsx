@@ -18,13 +18,8 @@ export default function ClaimFoodScannerPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const intervalRef = useRef<number | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  type JsQRFn = (
-    data: Uint8ClampedArray,
-    width: number,
-    height: number
-  ) => { data: string } | null;
-
-  const jsqrRef = useRef<JsQRFn | null>(null); // jsQR module
+  // ZXing reader (lazy-loaded) — replaces previous jsQR fallback
+  const zxingRef = useRef<unknown | null>(null);
   // When the user explicitly stops the camera, set this to true so we don't
   // auto-restart (visibility / other handlers). Cleared when user starts.
   const userStopRef = useRef(false);
@@ -222,29 +217,39 @@ export default function ClaimFoodScannerPage() {
       }
     }
 
-    // 2) QR-only fallback via jsQR
+    // 2) Fallback via @zxing/library (lazy import)
     try {
-      console.debug("scanner:using jsQR fallback");
-      if (!jsqrRef.current) {
-        const mod = await import("jsqr");
-        const maybe = (mod as { default?: JsQRFn }).default ?? (mod as unknown as JsQRFn);
-        jsqrRef.current = maybe;
+      console.debug("scanner:using ZXing fallback");
+      if (!zxingRef.current) {
+        const mod = await import("@zxing/library");
+        // Prefer a multi-format reader, fallback to QR reader if present
+        const Reader = (mod && (mod.BrowserMultiFormatReader || mod.BrowserQRCodeReader)) as unknown as {
+          new (...args: unknown[]): unknown;
+        };
+        zxingRef.current = new Reader();
       }
-      const w = video.videoWidth || 640;
-      const h = video.videoHeight || 480;
-      if (!w || !h) return; // not ready yet
-
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.drawImage(video, 0, 0, w, h);
-      const imgData = ctx.getImageData(0, 0, w, h);
-      const result = jsqrRef.current(imgData.data, w, h);
-      if (result?.data && onDetectedRef.current) onDetectedRef.current(String(result.data));
-    } catch {
-      // ignore
+      const reader = zxingRef.current as unknown as {
+        decodeFromVideoElement?: (video: HTMLVideoElement) => Promise<{ getText?: () => string; text?: string; result?: string }> | { getText?: () => string; text?: string; result?: string };
+        reset?: () => void;
+      };
+      if (reader && typeof reader.decodeFromVideoElement === "function") {
+        // decodeFromVideoElement resolves once a code is found
+        const res = await reader.decodeFromVideoElement(video as HTMLVideoElement);
+        const text = res?.getText ? res.getText() : (res?.text ?? (res?.result ?? undefined));
+        if (text && onDetectedRef.current) {
+          try {
+            // stop any internal continuous decode loop the reader may have
+            reader.reset?.();
+          } catch {}
+          onDetectedRef.current(String(text));
+          return; // done for this tick
+        }
+      }
+    } catch (e) {
+      console.debug("scanner:ZXing failed this tick", e);
+      try {
+        (zxingRef.current as { reset?: () => void } | null)?.reset?.();
+      } catch {}
     }
   }, [paused, scanning]);
 
