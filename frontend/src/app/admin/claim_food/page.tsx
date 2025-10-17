@@ -177,6 +177,7 @@ export default function ClaimFoodScannerPage() {
   // stable callbacks like validateCode and will call pauseRef.current()
   const onDetectedRef = useRef<((raw: string) => Promise<void>) | null>(null);
   onDetectedRef.current = async (raw: string) => {
+    console.debug("scanner:onDetectedRef", raw);
     const code = String(raw || "").trim();
     if (!code) return;
     // suppress duplicates & rapid fire
@@ -220,6 +221,7 @@ export default function ClaimFoodScannerPage() {
 
   // --- Scanner loop (throttled) ---
   const loop = useCallback(async () => {
+    console.debug("scanner:loop entry", { scanning, paused });
     if (!scanning || paused) return;
     const video = videoRef.current;
     if (!video) return;
@@ -227,6 +229,7 @@ export default function ClaimFoodScannerPage() {
     // Prefer native API
     const detector = await ensureDetector();
     if (detector) {
+      console.debug("scanner:using BarcodeDetector");
       try {
         const barcodes = await detector.detect(video);
         if (barcodes && barcodes.length > 0) {
@@ -244,6 +247,7 @@ export default function ClaimFoodScannerPage() {
 
     // Fallback: jsQR (lazy load once)
       try {
+        console.debug("scanner:using jsQR fallback");
         if (!jsqrRef.current) {
           const mod = await import("jsqr");
           // prefer default export if present, otherwise module itself is the function
@@ -271,6 +275,7 @@ export default function ClaimFoodScannerPage() {
   // --- Camera controls (defined after loop) ---
   const startCamera = useCallback(async () => {
     if (userStopRef.current) return; // respect user stop
+    console.debug("scanner:startCamera (attempt)");
     setStatus("Requesting camera permission…");
     try {
       const constraints = {
@@ -286,6 +291,7 @@ export default function ClaimFoodScannerPage() {
       setScanning(true);
       setPaused(false);
       setStatus("Scanning…");
+  console.debug("scanner:camera started", { video: !!videoRef.current, stream: !!streamRef.current });
       // start the scan loop
       clearTimer();
       intervalRef.current = window.setInterval(loop, 500);
@@ -298,6 +304,7 @@ export default function ClaimFoodScannerPage() {
   }, [loop]);
 
   const stopCamera = useCallback(() => {
+    console.debug("scanner:stopCamera");
     clearTimer();
     try {
       const s = streamRef.current;
