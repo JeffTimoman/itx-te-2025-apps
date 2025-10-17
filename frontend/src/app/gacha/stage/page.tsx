@@ -5,6 +5,7 @@ import { GachaCmd, GachaEvent, GACHA_CHANNEL, GachaAPI } from "../../../lib/gach
 export default function StagePage() {
   const chanRef = useRef<BroadcastChannel | null>(null);
   const [armed, setArmed] = useState(false);
+  const [stageReady, setStageReady] = useState(false);
 
   useEffect(() => {
     const chan = new BroadcastChannel(GACHA_CHANNEL);
