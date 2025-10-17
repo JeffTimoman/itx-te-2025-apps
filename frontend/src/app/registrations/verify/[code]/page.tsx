@@ -765,12 +765,12 @@
 //     </div>
 //   );
 // }
-
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
+// --- Types ---
 type Registrant = {
   id: number;
   name: string;
@@ -780,10 +780,14 @@ type Registrant = {
 
 /**
  * VerifyPage — Hogwarts parchment + candlelight skin
- * (UX & logic preserved; visuals themed to match the Hogwarts vibe)
  *
- * Optional fonts (add once in <head>):
- * <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600..900&family=Crimson+Pro:wght@400;600;700&display=swap" rel="stylesheet">
+ * Key UI/UX fixes for long names pushing layout:
+ * 1) The name trigger is a fixed-width button (w-full) with `truncate min-w-0` so
+ *    very long names never stretch the row.
+ * 2) The dropdown panel width is anchored to the trigger (w-full), not content.
+ * 3) Inside each option we `truncate` the name and make the bureau `shrink-0`.
+ * 4) Action rows use `shrink-0` on icons/chevrons and `min-w-0` on text spans.
+ * 5) Status banner uses `break-words` so server messages never overflow.
  */
 
 // --- In-file Combobox (dropdown-first with in-panel search) ---
@@ -834,7 +838,6 @@ function RegistrantCombobox({
     setOpen(false);
   }
 
-  // Keyboard navigation when dropdown is open
   function onKeyDown(e: React.KeyboardEvent) {
     if (!open) return;
     if (e.key === "ArrowDown") {
@@ -860,18 +863,18 @@ function RegistrantCombobox({
   }
 
   return (
-    <div ref={wrapRef} className="relative" onKeyDown={onKeyDown}>
+    <div ref={wrapRef} className="relative min-w-0" onKeyDown={onKeyDown}>
       <label className="text-[11px] uppercase tracking-wider text-amber-300/80">
         Select your name
       </label>
 
-      {/* Trigger button */}
-        <button
+      {/* Trigger button – does not expand layout thanks to truncate+min-w-0 */}
+      <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="mt-2 w-full p-3 rounded-xl bg-amber-950/20 border border-amber-900/40 text-left flex items-center justify-between"
+        className="mt-2 w-full p-3 rounded-xl bg-amber-950/20 border border-amber-900/40 text-left flex items-center justify-between overflow-hidden"
       >
         <span className="truncate min-w-0">
           {selected
@@ -880,18 +883,18 @@ function RegistrantCombobox({
               }`
             : "Pick your name"}
         </span>
-        <span aria-hidden className="ml-3 opacity-70">
+        <span aria-hidden className="ml-3 opacity-70 shrink-0">
           ▾
         </span>
       </button>
 
-      {/* Dropdown panel with search at top */}
+      {/* Dropdown panel width anchored to trigger (w-full) */}
       {open && (
         <div
-          className={`absolute z-20 mt-2 w-full rounded-xl ${glassClass} shadow-xl`}
+          className={`absolute z-20 mt-2 inset-x-0 max-w-full rounded-xl ${glassClass} shadow-xl`}
           role="listbox"
         >
-          {/* Top bar: search + actions */}
+          {/* Top bar: search + refresh */}
           <div className="px-3 pt-3">
             <input
               autoFocus
@@ -926,7 +929,7 @@ function RegistrantCombobox({
           </div>
 
           <div ref={listRef} className="max-h-64 overflow-auto py-1">
-                  {filtered.map((r, idx) => (
+            {filtered.map((r, idx) => (
               <button
                 key={r.id}
                 type="button"
@@ -935,9 +938,9 @@ function RegistrantCombobox({
                 data-row
                 onMouseEnter={() => setHoverIdx(idx)}
                 onClick={() => choose(r)}
-                className={`w-full text-left px-3 py-2 text-sm transition
-                  ${idx === hoverIdx ? "bg-amber-900/40" : ""}
-                  ${valueId === r.id ? "bg-emerald-900/30" : ""}`}
+                className={`w-full text-left px-3 py-2 text-sm transition ${
+                  idx === hoverIdx ? "bg-amber-900/40" : ""
+                } ${valueId === r.id ? "bg-emerald-900/30" : ""}`}
               >
                 <div className="flex items-center justify-between gap-3">
                   <span className="truncate min-w-0">{r.name}</span>
@@ -958,7 +961,6 @@ function RegistrantCombobox({
           </div>
         </div>
       )}
-
     </div>
   );
 }
@@ -1071,7 +1073,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
 
   return (
     <div
-      className={`min-h-screen flex flex-col ${parchmentBg} text-amber-100`}
+      className={`min-h-screen flex flex-col ${parchmentBg} text-amber-100 overflow-x-hidden`}
       style={{
         backgroundColor: "#1b1410",
         backgroundImage:
@@ -1110,87 +1112,87 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
       </header>
 
       {/* Main */}
-      <main className="flex-1 flex items-center justify-center px-4 py-8">
+      <main className="flex-1 flex items-center justify-center px-4 py-8 overflow-x-hidden">
         <div className="max-w-3xl w-full">
-        <p className="text-amber-200/90 text-sm font-[Crimson_Pro,serif]">
-          Select your name and enter your email to receive your winning code.
-          This link is single-use and expires after ~15 minutes.
-        </p>
+          <p className="text-amber-200/90 text-sm font-[Crimson_Pro,serif]">
+            Select your name and enter your email to receive your winning code.
+            This link is single-use and expires after ~15 minutes.
+          </p>
 
-        {status && (
-          <div
-            className={`mt-4 rounded-2xl p-4 border font-[Crimson_Pro,serif] ${
-              status.toLowerCase().startsWith("verified")
-                ? "bg-emerald-900/30 border-emerald-400/40 text-emerald-100"
-                : "bg-rose-900/30 border-rose-400/40 text-rose-100"
-            }`}
-          >
-            <div className="break-words min-w-0">{status}</div>
-          </div>
-        )}
-
-        {/* Fetch error banner */}
-        {fetchErr && (
-          <div className="mt-4 rounded-2xl p-4 bg-rose-900/40 border border-rose-400/40 text-rose-100 flex items-center justify-between gap-3 font-[Crimson_Pro,serif]">
-            <div className="text-sm">
-              {fetchErr} — the list may be incomplete. Try again.
+          {status && (
+            <div
+              className={`mt-4 rounded-2xl p-4 border font-[Crimson_Pro,serif] ${
+                status.toLowerCase().startsWith("verified")
+                  ? "bg-emerald-900/30 border-emerald-400/40 text-emerald-100"
+                  : "bg-rose-900/30 border-rose-400/40 text-rose-100"
+              }`}
+            >
+              <div className="break-words min-w-0">{status}</div>
             </div>
-            <button
-              onClick={fetchRegistrants}
-              className="text-xs px-3 py-1.5 rounded-lg bg-amber-950/30 border border-amber-900/40"
-            >
-              Retry
-            </button>
-          </div>
-        )}
+          )}
 
-        {/* Form */}
-        <form
-          onSubmit={handleSubmit}
-          className={`mt-6 grid gap-4 rounded-2xl p-6 ${glass}`}
-        >
-          <RegistrantCombobox
-            registrants={registrants}
-            valueId={selectedId}
-            onChangeId={(id) => setSelectedId(id)}
-            onRefresh={fetchRegistrants}
-            fetching={fetching}
-            glassClass={glass}
-          />
+          {/* Fetch error banner */}
+          {fetchErr && (
+            <div className="mt-4 rounded-2xl p-4 bg-rose-900/40 border border-rose-400/40 text-rose-100 flex items-center justify-between gap-3 font-[Crimson_Pro,serif]">
+              <div className="text-sm">
+                {fetchErr} — the list may be incomplete. Try again.
+              </div>
+              <button
+                onClick={fetchRegistrants}
+                className="text-xs px-3 py-1.5 rounded-lg bg-amber-950/30 border border-amber-900/40"
+              >
+                Retry
+              </button>
+            </div>
+          )}
 
-          <div className="grid gap-2">
-            <label className="text-[11px] uppercase tracking-wider text-amber-300/80">
-              Email
-            </label>
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@company.com"
-              className={`p-3 rounded-xl bg-amber-950/20 border ${
-                email
-                  ? emailValid
-                    ? "border-amber-900/40"
-                    : "border-amber-400/60"
-                  : "border-amber-900/40"
-              } outline-none focus:ring-2 focus:ring-amber-400/60`}
-              inputMode="email"
+          {/* Form */}
+          <form
+            onSubmit={handleSubmit}
+            className={`mt-6 grid gap-4 rounded-2xl p-6 ${glass} min-w-0`}
+          >
+            <RegistrantCombobox
+              registrants={registrants}
+              valueId={selectedId}
+              onChangeId={(id) => setSelectedId(id)}
+              onRefresh={fetchRegistrants}
+              fetching={fetching}
+              glassClass={glass}
             />
-            {!emailValid && email && (
-              <p className="text-[11px] text-amber-200 font-[Crimson_Pro,serif]">
-                That email doesn’t look right.
-              </p>
-            )}
-          </div>
 
-          <div className="flex items-center gap-2 justify-end">
-            <button
-              disabled={!canSubmit}
-              className={`px-4 py-2 rounded-lg ${burgundyBtn} disabled:opacity-50`}
-            >
-              {loading ? "Verifying…" : "Verify & Activate"}
-            </button>
-          </div>
-        </form>
+            <div className="grid gap-2">
+              <label className="text-[11px] uppercase tracking-wider text-amber-300/80">
+                Email
+              </label>
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@company.com"
+                className={`p-3 rounded-xl bg-amber-950/20 border ${
+                  email
+                    ? emailValid
+                      ? "border-amber-900/40"
+                      : "border-amber-400/60"
+                    : "border-amber-900/40"
+                } outline-none focus:ring-2 focus:ring-amber-400/60`}
+                inputMode="email"
+              />
+              {!emailValid && email && (
+                <p className="text-[11px] text-amber-200 font-[Crimson_Pro,serif]">
+                  That email doesn’t look right.
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 justify-end">
+              <button
+                disabled={!canSubmit}
+                className={`px-4 py-2 rounded-lg ${burgundyBtn} disabled:opacity-50`}
+              >
+                {loading ? "Verifying…" : "Verify & Activate"}
+              </button>
+            </div>
+          </form>
         </div>
       </main>
     </div>
