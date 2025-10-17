@@ -863,7 +863,7 @@ function RegistrantCombobox({
   }
 
   return (
-    <div ref={wrapRef} className="relative" onKeyDown={onKeyDown}>
+    <div ref={wrapRef} className="relative min-w-0" onKeyDown={onKeyDown}>
       <label className="text-[11px] uppercase tracking-wider text-amber-300/80">
         Select your name
       </label>
@@ -874,7 +874,7 @@ function RegistrantCombobox({
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="mt-2 w-full p-3 rounded-xl bg-amber-950/20 border border-amber-900/40 text-left flex items-center justify-between"
+        className="mt-2 w-full p-3 rounded-xl bg-amber-950/20 border border-amber-900/40 text-left flex items-center justify-between overflow-hidden"
       >
         <span className="truncate min-w-0">
           {selected
@@ -891,7 +891,7 @@ function RegistrantCombobox({
       {/* Dropdown panel width anchored to trigger (w-full) */}
       {open && (
         <div
-          className={`absolute z-20 mt-2 w-full rounded-xl ${glassClass} shadow-xl`}
+          className={`absolute z-20 mt-2 inset-x-0 max-w-full rounded-xl ${glassClass} shadow-xl`}
           role="listbox"
         >
           {/* Top bar: search + refresh */}
@@ -1073,7 +1073,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
 
   return (
     <div
-      className={`min-h-screen flex flex-col ${parchmentBg} text-amber-100`}
+      className={`min-h-screen flex flex-col ${parchmentBg} text-amber-100 overflow-x-hidden`}
       style={{
         backgroundColor: "#1b1410",
         backgroundImage:
@@ -1112,7 +1112,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
       </header>
 
       {/* Main */}
-      <main className="flex-1 flex items-center justify-center px-4 py-8">
+      <main className="flex-1 flex items-center justify-center px-4 py-8 overflow-x-hidden">
         <div className="max-w-3xl w-full">
           <p className="text-amber-200/90 text-sm font-[Crimson_Pro,serif]">
             Select your name and enter your email to receive your winning code.
@@ -1149,7 +1149,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
           {/* Form */}
           <form
             onSubmit={handleSubmit}
-            className={`mt-6 grid gap-4 rounded-2xl p-6 ${glass}`}
+            className={`mt-6 grid gap-4 rounded-2xl p-6 ${glass} min-w-0`}
           >
             <RegistrantCombobox
               registrants={registrants}
