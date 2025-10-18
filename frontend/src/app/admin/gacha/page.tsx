@@ -805,6 +805,7 @@ import React, {
   useEffect,
   useRef,
   useState,
+  CSSProperties,
 } from "react";
 import authFetch from "../../../lib/api/client";
 import AdminHeader from "../../../components/AdminHeader";
@@ -1934,9 +1935,10 @@ export default function GachaPageMain() {
               exit={isFullscreen ? { opacity: 0, scale: 0.98, y: 12, x: 8 } : { x: -340, opacity: 0 }}
               transition={{ type: "spring", stiffness: 260, damping: 24 }}
               className={isFullscreen
-                ? `fixed right-4 bottom-20 z-[9999] w-[320px] max-w-[92vw] ${panelGlass} p-4 shadow-2xl`
+                ? `fixed right-4 bottom-20 z-[9999] w-[320px] max-w-[92vw] ${panelGlass} p-4 shadow-2xl max-h-[calc(100vh-6rem)] overflow-y-auto touch-auto` // allow vertical scrolling in fullscreen
                 : `fixed left-0 top-0 bottom-0 z-[9999] w-[320px] max-w-[85vw] ${panelGlass} p-6 overflow-y-auto`
               }
+              style={isFullscreen ? ({ WebkitOverflowScrolling: 'touch' } as CSSProperties) : undefined}
               role="dialog"
               aria-modal="true"
               aria-label="Gacha Controls"
