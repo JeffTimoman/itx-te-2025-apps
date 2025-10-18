@@ -2019,7 +2019,7 @@ export default function GachaPageMain() {
                   <div className="text-[11px] uppercase tracking-wider text-amber-300/70 mb-2">
                     Winners & Gifts
                   </div>
-                  <div className="flex items-center gap-3 mb-3">
+                  <div className="flex items-center gap-3 mb-3 overflow-auto">
                     <div className="text-xs">Winners:</div>
                     {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => (
                       <button
