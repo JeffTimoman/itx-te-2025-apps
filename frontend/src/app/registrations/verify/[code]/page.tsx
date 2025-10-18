@@ -1162,7 +1162,7 @@ export default function VerifyPage({ params }: { params: { code: string } }) {
 
             <div className="grid gap-2">
               <label className="text-[11px] uppercase tracking-wider text-amber-300/80">
-                Email
+                {"Email (Milik Pribadi)"} 
               </label>
               <input
                 value={email}
