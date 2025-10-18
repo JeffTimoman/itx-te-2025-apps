@@ -1128,7 +1128,7 @@ export default function JoinPage() {
                     id="name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g., U081591 - Jeff"
+                    placeholder="e.g., UXXXXXX - Nama Kamu"
                     className={`w-full p-3 rounded-xl bg-amber-950/20 border ${
                       nameValid ? "border-amber-900/40" : "border-red-900/50"
                     } outline-none focus:ring-2 focus:ring-amber-400/60`}
