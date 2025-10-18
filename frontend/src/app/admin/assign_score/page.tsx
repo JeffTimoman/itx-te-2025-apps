@@ -264,13 +264,29 @@ export default function AssignScorePage() {
                         <div className="text-xs text-slate-400">id: {t.id}</div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          inputMode="numeric"
-                          className="w-28 p-2 rounded-lg bg-white/10 border border-white/20 outline-none focus:ring-2 focus:ring-indigo-400/60"
-                          value={points[t.id] ?? 0}
-                          onChange={(e) => setPoint(t.id, Number(e.target.value || 0))}
-                        />
+                        <div className="flex items-center border border-white/10 rounded-lg overflow-hidden bg-white/5">
+                          <button
+                            aria-label={`Decrease points for ${t.name}`}
+                            onClick={() => setPoint(t.id, Math.max(0, (points[t.id] ?? 0) - 1))}
+                            className="px-2 py-1 text-sm bg-transparent hover:bg-white/6 disabled:opacity-50"
+                          >
+                            −
+                          </button>
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            className="w-20 p-2 bg-transparent border-0 outline-none text-center"
+                            value={points[t.id] ?? 0}
+                            onChange={(e) => setPoint(t.id, Math.max(0, Number(e.target.value || 0)))}
+                          />
+                          <button
+                            aria-label={`Increase points for ${t.name}`}
+                            onClick={() => setPoint(t.id, (points[t.id] ?? 0) + 1)}
+                            className="px-2 py-1 text-sm bg-transparent hover:bg-white/6"
+                          >
+                            +
+                          </button>
+                        </div>
                         <div className="text-sm opacity-80">points</div>
                       </div>
                     </div>
