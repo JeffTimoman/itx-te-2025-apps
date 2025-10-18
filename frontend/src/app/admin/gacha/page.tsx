@@ -1218,6 +1218,26 @@ export default function GachaPageMain() {
     load();
   }, [load]);
 
+  // Ensure selectedGiftsArr has entries for visible slots and clamp winnersCount
+  useEffect(() => {
+    // clamp winnersCount
+    if (winnersCount < 1) setWinnersCount(1);
+    if (winnersCount > MAX_SLOTS) setWinnersCount(MAX_SLOTS);
+    // pad selectedGiftsArr if needed
+    setSelectedGiftsArr((arr) => {
+      const copy = [...arr];
+      if (copy.length < MAX_SLOTS) {
+        const fill = (gifts[0]?.id) ?? 0;
+        while (copy.length < MAX_SLOTS) copy.push(fill);
+      }
+      // also ensure first N slots have a value (if some are 0)
+      for (let i = 0; i < Math.max(winnersCount, copy.length); i++) {
+        if (!copy[i]) copy[i] = gifts[0]?.id ?? 0;
+      }
+      return copy;
+    });
+  }, [winnersCount, gifts]);
+
   // fullscreen handling
   useEffect(() => {
     const handler = () => setIsFullscreen(Boolean(document.fullscreenElement));
@@ -2030,6 +2050,22 @@ export default function GachaPageMain() {
                         {n}
                       </button>
                     ))}
+
+                    {/* Custom numeric input (1-4) */}
+                    <div className="ml-2 flex items-center gap-2">
+                      <input
+                        type="number"
+                        min={1}
+                        max={4}
+                        value={winnersCount}
+                        onChange={(e) => {
+                          const v = Math.max(1, Math.min(4, Number(e.currentTarget.value || 1)));
+                          setWinnersCount(v);
+                        }}
+                        className="w-16 p-1.5 rounded bg-amber-950/10 text-center text-sm"
+                        aria-label="Number of winners (1 to 4)"
+                      />
+                    </div>
                   </div>
 
                   <div className="space-y-2 max-h-56 overflow-auto pr-1">
